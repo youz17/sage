@@ -3,7 +3,6 @@ import type { LLMClient } from "../llm/client.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { buildSkillPrompt } from "../skills/loader.js";
-import type { AgentMode } from "./modes.js";
 
 const DEFAULT_CONFIG: AgentConfig = {
   maxIterations: 20,
@@ -20,7 +19,7 @@ export async function* runAgent(
 ): AsyncGenerator<AgentEvent> {
   const cfg = { ...DEFAULT_CONFIG, ...config };
   const skillPrompt = buildSkillPrompt(cfg.skills);
-  const systemPrompt = buildSystemPrompt(cfg.mode as AgentMode, skillPrompt);
+  const systemPrompt = buildSystemPrompt(cfg.mode, skillPrompt);
 
   const messages: Message[] = [
     { role: "system", content: systemPrompt },

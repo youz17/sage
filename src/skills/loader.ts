@@ -1,5 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { getSubdir, scanMdFiles } from "../config/loader.js";
 import { BUILTIN_SKILLS } from "./builtin.js";
 
 export interface Skill {
@@ -7,18 +6,25 @@ export interface Skill {
   prompt: string;
 }
 
-const SKILLS_DIR = resolve("skills");
+export function getAllSkills(): Map<string, string> {
+  const skills = new Map<string, string>(Object.entries(BUILTIN_SKILLS));
 
-export function loadSkill(name: string): Skill | null {
-  const builtin = BUILTIN_SKILLS[name];
-  if (builtin) return { name, prompt: builtin };
-
-  const filePath = join(SKILLS_DIR, `${name}.md`);
-  if (existsSync(filePath)) {
-    const content = readFileSync(filePath, "utf-8");
-    return { name, prompt: content };
+  const customSkills = scanMdFiles(getSubdir("skills"));
+  for (const [name, content] of customSkills) {
+    skills.set(name, content);
   }
 
+  return skills;
+}
+
+export function getAllSkillNames(): string[] {
+  return Array.from(getAllSkills().keys());
+}
+
+export function loadSkill(name: string): Skill | null {
+  const all = getAllSkills();
+  const prompt = all.get(name);
+  if (prompt) return { name, prompt };
   return null;
 }
 
@@ -41,7 +47,9 @@ export function parseSkillsFromInput(input: string): {
 } {
   const skills: string[] = [];
   const cleanInput = input.replace(/\/(\w+)/g, (_, name: string) => {
-    skills.push(name);
+    if (name !== "mode" && name !== "session" && name !== "quit" && name !== "exit") {
+      skills.push(name);
+    }
     return "";
   }).trim();
 

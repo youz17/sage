@@ -1,5 +1,5 @@
-import { Completer, type CompletionItem } from "./completer.js";
-import { ALL_MODES, isValidMode, type AgentMode } from "../core/modes.js";
+import { Completer, type CompletionProvider } from "./completer.js";
+import { getAllModeNames, isValidMode } from "../core/modes.js";
 
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
@@ -8,10 +8,11 @@ const CYAN = "\x1b[36m";
 const CLEAR_LINE = "\x1b[2K\r";
 
 export interface InputResult {
-  type: "message" | "mode_switch" | "quit";
+  type: "message" | "mode_switch" | "session_command" | "quit";
   text?: string;
-  mode?: AgentMode;
+  mode?: string;
   skills?: string[];
+  sessionArgs?: string[];
 }
 
 export class InputEditor {
@@ -22,20 +23,20 @@ export class InputEditor {
   private historyIndex = -1;
   private tempInput = "";
   private completer: Completer;
-  private currentMode: AgentMode;
+  private currentMode: string;
   private resolve: ((result: InputResult) => void) | null = null;
   private active = false;
 
-  constructor(mode: AgentMode, completionItems: CompletionItem[]) {
+  constructor(mode: string, completionProvider: CompletionProvider) {
     this.currentMode = mode;
-    this.completer = new Completer(completionItems);
+    this.completer = new Completer(completionProvider);
   }
 
-  get mode(): AgentMode {
+  get mode(): string {
     return this.currentMode;
   }
 
-  setMode(mode: AgentMode): void {
+  setMode(mode: string): void {
     this.currentMode = mode;
   }
 
@@ -66,8 +67,8 @@ export class InputEditor {
 
     const seq = data.toString();
 
-    // Ctrl+C
-    if (seq === "\x03") {
+    // Ctrl+C or Ctrl+D
+    if (seq === "\x03" || seq === "\x04") {
       this.completer.close();
       this.emit({ type: "quit" });
       return;
@@ -92,31 +93,27 @@ export class InputEditor {
       if (this.completer.isOpen) {
         const accepted = this.completer.accept();
         if (accepted) {
-          this.lines[0] = accepted + " ";
-          this.cursorRow = 0;
-          this.cursorCol = this.lines[0].length;
+          this.applyCompletion(accepted);
         }
         this.renderPrompt();
         return;
       }
-      // Cycle mode
-      const modes = ALL_MODES;
-      const idx = modes.indexOf(this.currentMode);
-      this.currentMode = modes[(idx + 1) % modes.length];
-      this.renderPrompt();
+      // Cycle mode when no menu is open and input is empty
+      if (this.getFullText().trim() === "") {
+        const modes = getAllModeNames();
+        const idx = modes.indexOf(this.currentMode);
+        this.currentMode = modes[(idx + 1) % modes.length];
+        this.renderPrompt();
+      }
       return;
     }
 
-    // Enter (send) vs Shift+Enter (newline)
-    // Shift+Enter in most terminals sends \x1b[13;2u or just \r / \n
-    // We detect raw Enter as \r or \n
+    // Enter
     if (seq === "\r" || seq === "\n") {
       if (this.completer.isOpen) {
         const accepted = this.completer.accept();
         if (accepted) {
-          this.lines[0] = accepted + " ";
-          this.cursorRow = 0;
-          this.cursorCol = this.lines[0].length;
+          this.applyCompletion(accepted);
         }
         this.renderPrompt();
         return;
@@ -125,7 +122,7 @@ export class InputEditor {
       return;
     }
 
-    // Shift+Enter: \x1b[13;2u (kitty protocol) or some terminals send \x1bOM
+    // Shift+Enter
     if (seq === "\x1b[13;2u" || seq === "\x1bOM") {
       this.insertNewline();
       this.renderPrompt();
@@ -152,32 +149,26 @@ export class InputEditor {
     }
 
     // Arrow keys
-    if (seq === "\x1b[A") { // Up
-      if (this.completer.isOpen) {
-        this.completer.moveUp();
-        return;
-      }
+    if (seq === "\x1b[A") {
+      if (this.completer.isOpen) { this.completer.moveUp(); return; }
       this.historyUp();
       this.renderPrompt();
       return;
     }
-    if (seq === "\x1b[B") { // Down
-      if (this.completer.isOpen) {
-        this.completer.moveDown();
-        return;
-      }
+    if (seq === "\x1b[B") {
+      if (this.completer.isOpen) { this.completer.moveDown(); return; }
       this.historyDown();
       this.renderPrompt();
       return;
     }
-    if (seq === "\x1b[C") { // Right
+    if (seq === "\x1b[C") {
       if (this.cursorCol < this.lines[this.cursorRow].length) {
         this.cursorCol++;
         this.renderPrompt();
       }
       return;
     }
-    if (seq === "\x1b[D") { // Left
+    if (seq === "\x1b[D") {
       if (this.cursorCol > 0) {
         this.cursorCol--;
         this.renderPrompt();
@@ -185,19 +176,26 @@ export class InputEditor {
       return;
     }
 
-    // Printable characters
-    if (seq.length === 1 && seq.charCodeAt(0) >= 32) {
+    // Printable or multi-byte UTF-8
+    if ((seq.length === 1 && seq.charCodeAt(0) >= 32) ||
+        (seq.length > 1 && !seq.startsWith("\x1b"))) {
       this.insertChar(seq);
       this.renderPrompt();
       return;
     }
+  }
 
-    // Multi-byte UTF-8 characters (CJK etc.)
-    if (seq.length > 1 && !seq.startsWith("\x1b")) {
-      this.insertChar(seq);
-      this.renderPrompt();
-      return;
+  private applyCompletion(accepted: string): void {
+    const currentText = this.lines[0];
+    // If completing a subcommand like "/mode deep", replace from the right part
+    const parts = currentText.split(/\s+/);
+    if (parts.length >= 2 && (parts[0] === "/mode" || parts[0] === "/session")) {
+      this.lines[0] = parts[0] + " " + accepted + " ";
+    } else {
+      this.lines[0] = accepted + " ";
     }
+    this.cursorRow = 0;
+    this.cursorCol = this.lines[0].length;
   }
 
   private insertChar(ch: string): void {
@@ -223,7 +221,7 @@ export class InputEditor {
       if (!this.completer.isOpen) {
         this.completer.open(currentLine);
       } else {
-        this.completer.filter(currentLine);
+        this.completer.update(currentLine);
       }
     } else if (this.completer.isOpen) {
       this.completer.close();
@@ -279,8 +277,8 @@ export class InputEditor {
       return;
     }
 
-    // Parse /mode command
-    const modeMatch = text.match(/^\/mode\s+(\w+)$/);
+    // /mode <name>
+    const modeMatch = text.match(/^\/mode\s+(\S+)$/);
     if (modeMatch) {
       const newMode = modeMatch[1];
       if (isValidMode(newMode)) {
@@ -290,10 +288,20 @@ export class InputEditor {
       return;
     }
 
-    // Parse skills from input
+    // /session <subcommand> [args]
+    const sessionMatch = text.match(/^\/session\s+(.+)$/);
+    if (sessionMatch) {
+      const args = sessionMatch[1].trim().split(/\s+/);
+      this.emit({ type: "session_command", sessionArgs: args });
+      return;
+    }
+
+    // Parse skills
     const skills: string[] = [];
     const cleanText = text.replace(/\/(\w+)/g, (_, name: string) => {
-      if (name !== "mode") skills.push(name);
+      if (!["mode", "session", "quit", "exit"].includes(name)) {
+        skills.push(name);
+      }
       return "";
     }).trim();
 
@@ -318,13 +326,11 @@ export class InputEditor {
 
     if (this.lines.length === 1) {
       process.stdout.write(`${CLEAR_LINE}${promptPrefix}${this.lines[0]}`);
-      // Position cursor
       const backCount = this.lines[0].length - this.cursorCol;
       if (backCount > 0) {
         process.stdout.write(`\x1b[${backCount}D`);
       }
     } else {
-      // Multi-line: clear and redraw
       process.stdout.write(CLEAR_LINE);
       for (let i = 0; i < this.lines.length; i++) {
         if (i === 0) {
@@ -333,7 +339,6 @@ export class InputEditor {
           process.stdout.write(`\n${CLEAR_LINE}       ${this.lines[i]}`);
         }
       }
-      // Move cursor to correct position
       const linesBelow = this.lines.length - 1 - this.cursorRow;
       if (linesBelow > 0) {
         process.stdout.write(`\x1b[${linesBelow}A`);
