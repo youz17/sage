@@ -11,7 +11,7 @@ export interface SageConfig {
 export const DEFAULT_CONFIG: SageConfig = {
   model: {
     provider: "https://api.deepseek.com/v1",
-    model: "deepseek-chat",
+    model: "deepseek-pro-flash",
     apiKey: "",
   },
   defaultMode: "socratic",
