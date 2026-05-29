@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { loadConfig } from "../config/index.js";
 import { createLLMClient } from "../llm/index.js";
 import {
   ToolRegistry,
@@ -7,51 +8,175 @@ import {
   createChallengeTool,
 } from "../tools/index.js";
 import { runAgent } from "../core/index.js";
-import type { Message } from "../types.js";
+import { getAllModeNames } from "../core/modes.js";
+import { getAllSkillNames } from "../skills/loader.js";
+import { SessionManager } from "../session/index.js";
+import type { CompletionItem } from "./completer.js";
 import { Renderer } from "./renderer.js";
 import { InputEditor } from "./input.js";
-import type { CompletionItem } from "./completer.js";
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
+const config = loadConfig();
 
-if (!DEEPSEEK_API_KEY) {
-  console.error("Error: DEEPSEEK_API_KEY is required. Set it in .env file.");
+if (!config.model.apiKey) {
+  console.error("Error: model.apiKey is required in ~/.sage/config.json");
   process.exit(1);
 }
 
 const llm = createLLMClient({
-  apiKey: DEEPSEEK_API_KEY,
-  baseUrl: "https://api.deepseek.com",
-  model: "deepseek-chat",
+  apiKey: config.model.apiKey,
+  baseUrl: config.model.provider,
+  model: config.model.model,
 });
 
 const tools = new ToolRegistry();
-if (TAVILY_API_KEY) {
-  tools.register(createWebSearchTool(TAVILY_API_KEY));
+if (config.tavilyApiKey) {
+  tools.register(createWebSearchTool(config.tavilyApiKey));
 }
 tools.register(createReflectTool(llm));
 tools.register(createChallengeTool(llm));
 
-const completionItems: CompletionItem[] = [
-  { command: "/reflect", description: "Review answer for accuracy" },
-  { command: "/challenge", description: "Devil's advocate stress test" },
-  { command: "/goal", description: "Break down and execute a goal" },
-  { command: "/mode", description: "Switch mode (+ name)" },
-  { command: "/quit", description: "Exit" },
-];
+const sessionManager = new SessionManager();
+
+const DIM = "\x1b[2m";
+const CYAN = "\x1b[36m";
+const GREEN = "\x1b[32m";
+const RED = "\x1b[31m";
+const RESET = "\x1b[0m";
+
+function buildCompletions(input: string): CompletionItem[] {
+  const trimmed = input.trim();
+  const parts = trimmed.split(/\s+/);
+
+  // Two-level: /mode <modename>
+  if (parts[0] === "/mode" && parts.length >= 2) {
+    const query = parts.slice(1).join(" ").toLowerCase();
+    return getAllModeNames()
+      .filter((m) => m.startsWith(query))
+      .map((m) => ({ label: m, description: "mode" }));
+  }
+
+  // Two-level: /session <subcommand>
+  if (parts[0] === "/session") {
+    if (parts.length === 2) {
+      const query = parts[1].toLowerCase();
+      return [
+        { label: "new", description: "Start new session" },
+        { label: "list", description: "List all sessions" },
+        { label: "resume", description: "Resume a session" },
+        { label: "delete", description: "Delete a session" },
+      ].filter((item) => item.label.startsWith(query));
+    }
+    if (parts.length >= 3 && (parts[1] === "resume" || parts[1] === "delete")) {
+      const query = parts.slice(2).join(" ").toLowerCase();
+      return sessionManager
+        .list()
+        .filter((s) => s.id.includes(query) || s.title.toLowerCase().includes(query))
+        .map((s, i) => ({ label: String(i + 1), description: `${s.title} (${s.id})` }));
+    }
+    if (parts.length < 2) {
+      return [
+        { label: "new", description: "Start new session" },
+        { label: "list", description: "List all sessions" },
+        { label: "resume", description: "Resume a session" },
+        { label: "delete", description: "Delete a session" },
+      ];
+    }
+    return [];
+  }
+
+  // Top-level: /command
+  const query = trimmed.startsWith("/") ? trimmed.slice(1).toLowerCase() : "";
+  const items: CompletionItem[] = [];
+
+  // Skills
+  for (const skill of getAllSkillNames()) {
+    items.push({ label: `/${skill}`, description: "skill" });
+  }
+
+  // Commands
+  items.push({ label: "/mode", description: "Switch mode" });
+  items.push({ label: "/session", description: "Manage sessions" });
+  items.push({ label: "/quit", description: "Exit" });
+
+  return items.filter((item) => item.label.slice(1).startsWith(query));
+}
 
 const renderer = new Renderer();
-const input = new InputEditor("socratic", completionItems);
-const history: Message[] = [];
+const input = new InputEditor(config.defaultMode, buildCompletions);
 
-renderer.renderWelcome(input.mode, tools.list());
+// Startup: resume latest session or create new
+const isNewFlag = process.argv.includes("--new");
+if (!isNewFlag) {
+  const resumed = sessionManager.resumeLatest();
+  if (resumed) {
+    renderer.renderWelcome(input.mode, tools.list());
+    console.log(`  ${DIM}Resumed session: ${resumed.title} (${resumed.id})${RESET}`);
+    console.log(`  ${DIM}${resumed.messages.length} messages loaded${RESET}\n`);
+    input.setMode(resumed.mode);
+  } else {
+    sessionManager.createSession(input.mode);
+    renderer.renderWelcome(input.mode, tools.list());
+  }
+} else {
+  sessionManager.createSession(input.mode);
+  renderer.renderWelcome(input.mode, tools.list());
+}
+
+function handleSessionCommand(args: string[]): void {
+  const sub = args[0];
+
+  if (sub === "new") {
+    const session = sessionManager.createSession(input.mode);
+    console.log(`  ${GREEN}New session: ${session.id}${RESET}\n`);
+    return;
+  }
+
+  if (sub === "list") {
+    const sessions = sessionManager.list();
+    if (sessions.length === 0) {
+      console.log(`  ${DIM}No saved sessions${RESET}\n`);
+      return;
+    }
+    console.log();
+    for (let i = 0; i < sessions.length; i++) {
+      const s = sessions[i];
+      const current = sessionManager.getCurrent()?.id === s.id ? " ←" : "";
+      console.log(`  ${CYAN}${i + 1}.${RESET} ${s.title} ${DIM}(${s.id}, ${s.messageCount} msgs)${current}${RESET}`);
+    }
+    console.log();
+    return;
+  }
+
+  if (sub === "resume" && args[1]) {
+    const session = sessionManager.resume(args[1]);
+    if (session) {
+      input.setMode(session.mode);
+      console.log(`  ${GREEN}Resumed: ${session.title} (${session.messages.length} messages)${RESET}\n`);
+    } else {
+      console.log(`  ${RED}Session not found: ${args[1]}${RESET}\n`);
+    }
+    return;
+  }
+
+  if (sub === "delete" && args[1]) {
+    const ok = sessionManager.delete(args[1]);
+    if (ok) {
+      console.log(`  ${GREEN}Deleted session${RESET}\n`);
+    } else {
+      console.log(`  ${RED}Session not found: ${args[1]}${RESET}\n`);
+    }
+    return;
+  }
+
+  console.log(`  ${DIM}Usage: /session new|list|resume <id>|delete <id>${RESET}\n`);
+}
 
 async function mainLoop(): Promise<void> {
   while (true) {
     const result = await input.prompt();
 
     if (result.type === "quit") {
+      sessionManager.save();
       console.log("\n  Bye!\n");
       process.exit(0);
     }
@@ -59,8 +184,14 @@ async function mainLoop(): Promise<void> {
     if (result.type === "mode_switch") {
       if (result.mode) {
         input.setMode(result.mode);
+        sessionManager.setMode(result.mode);
         renderer.renderModeSwitch(result.mode);
       }
+      continue;
+    }
+
+    if (result.type === "session_command") {
+      handleSessionCommand(result.sessionArgs ?? []);
       continue;
     }
 
@@ -69,14 +200,17 @@ async function mainLoop(): Promise<void> {
       renderer.renderAgentHeader(input.mode);
       renderer.startSpinner();
 
-      history.push({ role: "user", content: result.text });
+      const userMsg = { role: "user" as const, content: result.text };
+      sessionManager.addMessage(userMsg);
+
+      const history = sessionManager.getMessages().slice(0, -1);
       let fullText = "";
       let spinnerStopped = false;
 
       try {
         for await (const event of runAgent(
           result.text,
-          history.slice(0, -1),
+          history,
           llm,
           tools,
           { mode: input.mode, skills: result.skills ?? [] },
@@ -86,33 +220,21 @@ async function mainLoop(): Promise<void> {
               break;
 
             case "tool_call":
-              if (!spinnerStopped) {
-                renderer.stopSpinner();
-                spinnerStopped = true;
-              }
-              renderer.renderToolCall(
-                event.toolName ?? "unknown",
-                event.toolArgs ?? {},
-              );
+              if (!spinnerStopped) { renderer.stopSpinner(); spinnerStopped = true; }
+              renderer.renderToolCall(event.toolName ?? "unknown", event.toolArgs ?? {});
               renderer.startSpinner();
               break;
 
             case "tool_result":
               renderer.stopSpinner();
               spinnerStopped = true;
-              renderer.renderToolResult(
-                event.toolName ?? "unknown",
-                event.content ?? "",
-              );
+              renderer.renderToolResult(event.toolName ?? "unknown", event.content ?? "");
               renderer.startSpinner();
               spinnerStopped = false;
               break;
 
             case "text_chunk":
-              if (!spinnerStopped) {
-                renderer.stopSpinner();
-                spinnerStopped = true;
-              }
+              if (!spinnerStopped) { renderer.stopSpinner(); spinnerStopped = true; }
               renderer.renderTextChunk(event.content ?? "");
               fullText += event.content ?? "";
               break;
@@ -121,7 +243,7 @@ async function mainLoop(): Promise<void> {
               renderer.stopSpinner();
               spinnerStopped = true;
               renderer.renderTextDone();
-              history.push({
+              sessionManager.addMessage({
                 role: "assistant",
                 content: event.content ?? fullText,
               });

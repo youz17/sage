@@ -3,8 +3,7 @@ import * as readline from "node:readline";
 import { createLLMClient } from "./llm/index.js";
 import { ToolRegistry, createWebSearchTool, createReflectTool, createChallengeTool } from "./tools/index.js";
 import { parseSkillsFromInput } from "./skills/index.js";
-import { runAgent, ALL_MODES, isValidMode } from "./core/index.js";
-import type { AgentMode } from "./core/index.js";
+import { runAgent, getAllModeNames, isValidMode } from "./core/index.js";
 import type { Message } from "./types.js";
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
@@ -29,7 +28,8 @@ tools.register(createReflectTool(llm));
 tools.register(createChallengeTool(llm));
 
 const history: Message[] = [];
-let currentMode: AgentMode = "socratic";
+let currentMode = "socratic";
+const ALL_MODES = getAllModeNames();
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -44,16 +44,10 @@ const RED = "\x1b[31m";
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
 
-console.log(`${BOLD}Better Chat Agent${RESET}`);
-console.log(`${DIM}Commands:${RESET}`);
-console.log(`${DIM}  /mode <name>  — switch mode (${ALL_MODES.join(", ")})${RESET}`);
-console.log(`${DIM}  /reflect      — activate reflection for this message${RESET}`);
-console.log(`${DIM}  /challenge    — activate devil's advocate for this message${RESET}`);
-console.log(`${DIM}  /goal         — activate goal decomposition${RESET}`);
-console.log(`${DIM}  /quit         — exit${RESET}`);
+console.log(`${BOLD}Sage (simple test)${RESET}`);
+console.log(`${DIM}Modes: ${ALL_MODES.join(", ")}${RESET}`);
 console.log(`${DIM}Tools: ${tools.list().join(", ") || "none"}${RESET}`);
-console.log(`${CYAN}Mode: ${currentMode}${RESET}`);
-console.log();
+console.log(`${CYAN}Mode: ${currentMode}${RESET}\n`);
 
 function prompt(): void {
   rl.question(`${BOLD}You:${RESET} `, async (input) => {
@@ -66,7 +60,6 @@ function prompt(): void {
       process.exit(0);
     }
 
-    // Handle /mode command
     const modeMatch = trimmed.match(/^\/mode\s+(\w+)$/);
     if (modeMatch) {
       const newMode = modeMatch[1];
@@ -81,14 +74,10 @@ function prompt(): void {
 
     const { skills, cleanInput } = parseSkillsFromInput(trimmed);
     if (skills.length > 0) {
-      const validSkills = skills.filter((s) => s !== "mode");
-      if (validSkills.length > 0) {
-        console.log(`${DIM}Active skills: ${validSkills.join(", ")}${RESET}`);
-      }
+      console.log(`${DIM}Active skills: ${skills.join(", ")}${RESET}`);
     }
 
     history.push({ role: "user", content: cleanInput });
-
     let currentText = "";
     process.stdout.write(`\n${BOLD}Agent${RESET} ${DIM}[${currentMode}]${RESET}${BOLD}:${RESET} `);
 
@@ -99,41 +88,29 @@ function prompt(): void {
       })) {
         switch (event.type) {
           case "thinking":
-            if (event.content && event.content.startsWith("Iteration")) {
+            if (event.content?.startsWith("Iteration")) {
               process.stdout.write(`\n${DIM}[${event.content}]${RESET}\n`);
             }
             break;
-
           case "tool_call":
-            process.stdout.write(
-              `\n${YELLOW}  ▶ ${event.toolName}(${JSON.stringify(event.toolArgs)})${RESET}\n`,
-            );
+            process.stdout.write(`\n${YELLOW}  ▶ ${event.toolName}(${JSON.stringify(event.toolArgs)})${RESET}\n`);
             break;
-
           case "tool_result": {
             const preview = event.content?.slice(0, 150)?.replace(/\n/g, " ") ?? "";
-            process.stdout.write(
-              `${GREEN}  ✓ ${event.toolName} result${RESET} ${DIM}(${preview}...)${RESET}\n`,
-            );
+            process.stdout.write(`${GREEN}  ✓ ${event.toolName} result${RESET} ${DIM}(${preview}...)${RESET}\n`);
             break;
           }
-
           case "text_chunk":
             process.stdout.write(event.content ?? "");
             currentText += event.content ?? "";
             break;
-
           case "text_done":
-            if (!currentText && event.content) {
-              process.stdout.write(event.content);
-            }
+            if (!currentText && event.content) process.stdout.write(event.content);
             history.push({ role: "assistant", content: event.content ?? currentText });
             break;
-
           case "error":
             process.stdout.write(`\n${RED}Error: ${event.content}${RESET}\n`);
             break;
-
           case "done":
             process.stdout.write("\n\n");
             break;
@@ -142,7 +119,6 @@ function prompt(): void {
     } catch (err) {
       console.error(`\n${RED}Fatal error: ${(err as Error).message}${RESET}\n`);
     }
-
     prompt();
   });
 }

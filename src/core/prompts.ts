@@ -1,7 +1,12 @@
-import { getModePrompt, type AgentMode } from "./modes.js";
+import { getModePrompt } from "./modes.js";
+import { loadRules } from "../config/loader.js";
 
-export function buildSystemPrompt(mode: AgentMode, skillPrompt: string): string {
+export function buildSystemPrompt(mode: string, skillPrompt: string): string {
   const modePrompt = getModePrompt(mode);
+  const rules = loadRules();
+  const rulesBlock = rules.length > 0
+    ? `\n\n## User Rules\n\nThe following rules are always active:\n\n${rules.join("\n\n")}`
+    : "";
 
   return `You are a thoughtful conversational agent that adapts its thinking and communication style based on the active mode.
 
@@ -33,5 +38,5 @@ ${modePrompt}
 
 - Use concrete examples to illustrate abstract points.
 - Keep responses focused — quality over quantity.
-- Format with markdown when it aids readability.${skillPrompt}`;
+- Format with markdown when it aids readability.${rulesBlock}${skillPrompt}`;
 }

@@ -1,6 +1,6 @@
-export type AgentMode = "socratic" | "direct" | "discuss" | "deep" | "perspectives";
+import { getSubdir, scanMdFiles } from "../config/loader.js";
 
-export const MODE_PROMPTS: Record<AgentMode, string> = {
+const BUILTIN_MODES: Record<string, string> = {
   socratic: `## Communication Mode: Socratic
 
 - Default to the Socratic method: ask questions that help the user think, not just receive answers.
@@ -47,12 +47,25 @@ Before answering any question, you MUST analyze it from multiple distinct perspe
 Make each perspective vivid and specific — the user should feel like they're hearing from real people with genuine convictions.`,
 };
 
-export const ALL_MODES: AgentMode[] = ["socratic", "direct", "discuss", "deep", "perspectives"];
+export function getAllModes(): Map<string, string> {
+  const modes = new Map<string, string>(Object.entries(BUILTIN_MODES));
 
-export function isValidMode(mode: string): mode is AgentMode {
-  return ALL_MODES.includes(mode as AgentMode);
+  const customModes = scanMdFiles(getSubdir("modes"));
+  for (const [name, content] of customModes) {
+    modes.set(name, content);
+  }
+
+  return modes;
 }
 
-export function getModePrompt(mode: AgentMode): string {
-  return MODE_PROMPTS[mode];
+export function getAllModeNames(): string[] {
+  return Array.from(getAllModes().keys());
+}
+
+export function isValidMode(mode: string): boolean {
+  return getAllModes().has(mode);
+}
+
+export function getModePrompt(mode: string): string {
+  return getAllModes().get(mode) ?? BUILTIN_MODES.socratic;
 }
