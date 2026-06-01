@@ -6,6 +6,7 @@ import {
   createWebSearchTool,
   createReflectTool,
   createChallengeTool,
+  createWebFetchTool,
 } from "../tools/index.js";
 import { runAgent } from "../core/index.js";
 import { getAllModeNames } from "../core/modes.js";
@@ -34,6 +35,7 @@ if (config.tavilyApiKey) {
 }
 tools.register(createReflectTool(llm));
 tools.register(createChallengeTool(llm));
+tools.register(createWebFetchTool());
 
 const sessionManager = new SessionManager();
 
