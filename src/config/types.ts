@@ -10,8 +10,8 @@ export interface SageConfig {
 
 export const DEFAULT_CONFIG: SageConfig = {
   model: {
-    provider: "https://api.deepseek.com/v1",
-    model: "deepseek-pro-flash",
+    provider: "https://api.deepseek.com",
+    model: "deepseek-v4-pro",
     apiKey: "",
   },
   defaultMode: "default",

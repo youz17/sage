@@ -1,6 +1,6 @@
 {
   "model": {
-    "provider": "https://api.deepseek.com/v1",
+    "provider": "https://api.deepseek.com/v1/chat/completions",
     "model": "deepseek-chat",
     "apiKey": "sk-your-deepseek-api-key"
   },

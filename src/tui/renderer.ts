@@ -1,5 +1,6 @@
 import { marked, type MarkedExtension } from "marked";
 import { markedTerminal } from "marked-terminal";
+import type { Message } from "../types.js";
 
 marked.use(markedTerminal() as MarkedExtension);
 
@@ -42,8 +43,42 @@ export class Renderer {
   }
 
   renderTextDone(): void {
-    // Streaming already printed the raw text. Just ensure a clean newline.
     process.stdout.write("\n");
+  }
+
+  renderMarkdownContent(text: string): void {
+    if (!text) return;
+    try {
+      const rendered = marked.parse(text) as string;
+      const indented = rendered
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n");
+      process.stdout.write(`${indented}\n\n`);
+    } catch {
+      process.stdout.write(`  ${text}\n\n`);
+    }
+  }
+
+  renderHistory(messages: Message[]): void {
+    const displayable = messages.filter(
+      (m) => m.role === "user" || m.role === "assistant" || m.role === "tool",
+    );
+    if (displayable.length === 0) return;
+
+    console.log(`  ${DIM}─── session history ───${RESET}\n`);
+    for (const msg of displayable) {
+      if (msg.role === "user") {
+        this.renderUserMessage(msg.content);
+      } else if (msg.role === "assistant") {
+        process.stdout.write(`  ${BOLD}Agent:${RESET}\n`);
+        this.renderMarkdownContent(msg.content);
+      } else if (msg.role === "tool") {
+        const preview = msg.content.slice(0, 200).replace(/\n/g, " ");
+        process.stdout.write(`  ${DIM}[tool] ${preview}${msg.content.length > 200 ? "..." : ""}${RESET}\n\n`);
+      }
+    }
+    console.log(`  ${DIM}─── resume ───${RESET}\n`);
   }
 
   renderToolCall(name: string, args: Record<string, unknown>): void {

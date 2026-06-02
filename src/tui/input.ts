@@ -7,6 +7,32 @@ const DIM = "\x1b[2m";
 const CYAN = "\x1b[36m";
 const CLEAR_LINE = "\x1b[2K\r";
 
+function visualWidth(str: string): number {
+  let w = 0;
+  for (const ch of str) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (
+      (cp >= 0x1100 && cp <= 0x115f) ||       // Hangul Jamo
+      cp === 0x2329 || cp === 0x232a ||         // angle brackets
+      (cp >= 0x2e80 && cp <= 0xa4cf) ||         // CJK rad / Yi / Kangxi
+      (cp >= 0xac00 && cp <= 0xd7a3) ||         // Hangul Syllables
+      (cp >= 0xf900 && cp <= 0xfaff) ||         // CJK Compat
+      (cp >= 0xfe10 && cp <= 0xfe19) ||         // Vertical forms
+      (cp >= 0xfe30 && cp <= 0xfe6f) ||         // CJK Compat Forms
+      (cp >= 0xff00 && cp <= 0xff60) ||         // Fullwidth Forms
+      (cp >= 0xffe0 && cp <= 0xffe6) ||         // Fullwidth Signs
+      (cp >= 0x1f000 && cp <= 0x1f644) ||       // Emoji
+      (cp >= 0x20000 && cp <= 0x2fffd) ||       // CJK Ext
+      (cp >= 0x30000 && cp <= 0x3fffd)          // CJK Ext
+    ) {
+      w += 2;
+    } else {
+      w += 1;
+    }
+  }
+  return w;
+}
+
 export interface InputResult {
   type: "message" | "mode_switch" | "session_command" | "quit";
   text?: string;
@@ -26,6 +52,7 @@ export class InputEditor {
   private currentMode: string;
   private resolve: ((result: InputResult) => void) | null = null;
   private active = false;
+  private prevTargetRow = 0;
 
   constructor(mode: string, completionProvider: CompletionProvider) {
     this.currentMode = mode;
@@ -47,6 +74,7 @@ export class InputEditor {
       this.cursorRow = 0;
       this.cursorCol = 0;
       this.historyIndex = -1;
+      this.prevTargetRow = 0;
       this.active = true;
       this.renderPrompt();
 
@@ -74,16 +102,13 @@ export class InputEditor {
       return;
     }
 
-    // Escape
+    // Escape — cancel current input, reset to blank
     if (seq === "\x1b") {
-      if (this.completer.isOpen) {
-        this.completer.close();
-        this.renderPrompt();
-        return;
-      }
+      this.completer.close();
       this.lines = [""];
       this.cursorRow = 0;
       this.cursorCol = 0;
+      this.historyIndex = -1;
       this.renderPrompt();
       return;
     }
@@ -323,15 +348,32 @@ export class InputEditor {
 
   renderPrompt(): void {
     const promptPrefix = `  ${DIM}[${CYAN}${this.currentMode}${RESET}${DIM}]${RESET} ${BOLD}>${RESET} `;
+    const prefixVisualLen = promptPrefix.replace(/\x1b\[[^m]*m/g, "").length;
+    const colWidth = process.stdout.columns || 80;
+
+    // Move up to the prompt line and clear everything below
+    if (this.prevTargetRow > 0) {
+      process.stdout.write(`\x1b[${this.prevTargetRow}A`);
+    }
+    process.stdout.write(`\r\x1b[0J`);
 
     if (this.lines.length === 1) {
-      process.stdout.write(`${CLEAR_LINE}${promptPrefix}${this.lines[0]}`);
-      const backCount = this.lines[0].length - this.cursorCol;
-      if (backCount > 0) {
-        process.stdout.write(`\x1b[${backCount}D`);
+      process.stdout.write(`${promptPrefix}${this.lines[0]}`);
+
+      const endAbsPos = prefixVisualLen + visualWidth(this.lines[0]);
+      const endRow = (endAbsPos / colWidth) | 0;
+      const targetAbsPos = prefixVisualLen + visualWidth(this.lines[0].slice(0, this.cursorCol));
+      const targetRow = (targetAbsPos / colWidth) | 0;
+      const targetCol = targetAbsPos % colWidth;
+
+      const rowsUp = endRow - targetRow;
+      if (rowsUp > 0) {
+        process.stdout.write(`\x1b[${rowsUp}A`);
       }
+      process.stdout.write(`\r\x1b[${targetCol}C`);
+
+      this.prevTargetRow = targetRow;
     } else {
-      process.stdout.write(CLEAR_LINE);
       for (let i = 0; i < this.lines.length; i++) {
         if (i === 0) {
           process.stdout.write(`${promptPrefix}${this.lines[i]}`);
@@ -343,8 +385,19 @@ export class InputEditor {
       if (linesBelow > 0) {
         process.stdout.write(`\x1b[${linesBelow}A`);
       }
-      const linePrefix = this.cursorRow === 0 ? promptPrefix.replace(/\x1b\[[^m]*m/g, "").length : 7;
-      process.stdout.write(`\r\x1b[${linePrefix + this.cursorCol}C`);
+      const linePrefix = this.cursorRow === 0 ? prefixVisualLen : 7;
+      const visualCursorCol = visualWidth(this.lines[this.cursorRow].slice(0, this.cursorCol));
+      process.stdout.write(`\r\x1b[${linePrefix + visualCursorCol}C`);
+
+      // Estimate physical row for next clear
+      this.prevTargetRow = this.lines.length - 1;
+      for (let i = 0; i <= this.cursorRow; i++) {
+        const prefix = i === 0 ? prefixVisualLen : 7;
+        const lw = prefix + visualWidth(this.lines[i]);
+        if (lw > colWidth && colWidth > 0) {
+          this.prevTargetRow += (lw - 1) / colWidth | 0;
+        }
+      }
     }
   }
 }

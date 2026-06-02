@@ -9,7 +9,7 @@ import {
   createWebFetchTool,
 } from "../tools/index.js";
 import { runAgent } from "../core/index.js";
-import { getAllModes } from "../core/modes.js";
+import { getAllModes, isValidMode } from "../core/modes.js";
 import {
   getAllSkills,
   getAutoSkills,
@@ -134,10 +134,15 @@ const isNewFlag = process.argv.includes("--new");
 if (!isNewFlag) {
   const resumed = sessionManager.resumeLatest();
   if (resumed) {
-    renderer.renderWelcome(input.mode, tools.list());
+    const mode = isValidMode(resumed.mode) ? resumed.mode : config.defaultMode;
+    input.setMode(mode);
+    if (!isValidMode(resumed.mode)) {
+      sessionManager.setMode(mode);
+    }
+    renderer.renderWelcome(mode, tools.list());
     console.log(`  ${DIM}Resumed session: ${resumed.title} (${resumed.id})${RESET}`);
     console.log(`  ${DIM}${resumed.messages.length} messages loaded${RESET}\n`);
-    input.setMode(resumed.mode);
+    renderer.renderHistory(resumed.messages);
   } else {
     sessionManager.createSession(input.mode);
     renderer.renderWelcome(input.mode, tools.list());
@@ -259,15 +264,13 @@ async function mainLoop(): Promise<void> {
               break;
 
             case "text_chunk":
-              if (!spinnerStopped) { renderer.stopSpinner(); spinnerStopped = true; }
-              renderer.renderTextChunk(event.content ?? "");
               fullText += event.content ?? "";
               break;
 
             case "text_done":
               renderer.stopSpinner();
               spinnerStopped = true;
-              renderer.renderTextDone();
+              renderer.renderMarkdownContent(event.content ?? fullText);
               sessionManager.addMessage({
                 role: "assistant",
                 content: event.content ?? fullText,

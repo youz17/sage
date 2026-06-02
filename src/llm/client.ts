@@ -9,7 +9,8 @@ export class LLMClient {
   private config: LLMConfig;
 
   constructor(config: LLMConfig) {
-    this.config = config;
+    this.config = { ...config };
+    this.config.baseUrl = config.baseUrl;
   }
 
   async generate(
@@ -51,7 +52,7 @@ export class LLMClient {
       body.tool_choice = "auto";
     }
 
-    const response = await fetch(`${this.config.baseUrl}/v1/chat/completions`, {
+    const response = await fetch(`${this.config.baseUrl}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -167,7 +168,7 @@ export class LLMClient {
     for (let i = 0; i < retries; i++) {
       try {
         const response = await fetch(
-          `${this.config.baseUrl}/v1/chat/completions`,
+          `${this.config.baseUrl}`,
           {
             method: "POST",
             headers: {
