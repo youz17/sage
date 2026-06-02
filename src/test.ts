@@ -2,7 +2,6 @@ import "dotenv/config";
 import * as readline from "node:readline";
 import { createLLMClient } from "./llm/index.js";
 import { ToolRegistry, createWebSearchTool, createReflectTool, createChallengeTool } from "./tools/index.js";
-import { parseSkillsFromInput } from "./skills/index.js";
 import { runAgent, getAllModeNames, isValidMode } from "./core/index.js";
 import type { Message } from "./types.js";
 
@@ -72,7 +71,13 @@ function prompt(): void {
       return prompt();
     }
 
-    const { skills, cleanInput } = parseSkillsFromInput(trimmed);
+    const skills: string[] = [];
+    const cleanInput = trimmed.replace(/\/(\w+)/g, (_, name: string) => {
+      if (!["mode", "session", "quit", "exit"].includes(name)) {
+        skills.push(name);
+      }
+      return "";
+    }).trim();
     if (skills.length > 0) {
       console.log(`${DIM}Active skills: ${skills.join(", ")}${RESET}`);
     }

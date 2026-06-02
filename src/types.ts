@@ -53,6 +53,7 @@ export interface AgentConfig {
   maxIterations: number;
   mode: string;
   skills: string[];
+  autoSkillPrompt?: string;
   onEvent?: (event: AgentEvent) => void;
 }
 

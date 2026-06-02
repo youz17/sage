@@ -9,8 +9,14 @@ import {
   createWebFetchTool,
 } from "../tools/index.js";
 import { runAgent } from "../core/index.js";
-import { getAllModeNames } from "../core/modes.js";
-import { getAllSkillNames } from "../skills/loader.js";
+import { getAllModes } from "../core/modes.js";
+import {
+  getAllSkills,
+  getAutoSkills,
+  buildAutoSkillPrompt,
+  buildUseSkillTool,
+} from "../skills/loader.js";
+import type { ToolDefinition } from "../types.js";
 import { SessionManager } from "../session/index.js";
 import type { CompletionItem } from "./completer.js";
 import { Renderer } from "./renderer.js";
@@ -37,6 +43,19 @@ tools.register(createReflectTool(llm));
 tools.register(createChallengeTool(llm));
 tools.register(createWebFetchTool());
 
+const allSkills = getAllSkills();
+const allModes = getAllModes();
+const autoSkills = getAutoSkills(allSkills);
+const autoSkillPrompt = buildAutoSkillPrompt(autoSkills);
+
+if (autoSkills.length > 0) {
+  const useSkillTool = buildUseSkillTool(autoSkills);
+  tools.register({
+    ...useSkillTool,
+    execute: async () => "", // dummy — intercepted by agent loop
+  } as ToolDefinition);
+}
+
 const sessionManager = new SessionManager();
 
 const DIM = "\x1b[2m";
@@ -52,9 +71,13 @@ function buildCompletions(input: string): CompletionItem[] {
   // Two-level: /mode <modename>
   if (parts[0] === "/mode" && parts.length >= 2) {
     const query = parts.slice(1).join(" ").toLowerCase();
-    return getAllModeNames()
-      .filter((m) => m.startsWith(query))
-      .map((m) => ({ label: m, description: "mode" }));
+    const modeItems: CompletionItem[] = [];
+    for (const [name, mode] of allModes) {
+      if (name.startsWith(query)) {
+        modeItems.push({ label: name, description: mode.description || "mode" });
+      }
+    }
+    return modeItems;
   }
 
   // Two-level: /session <subcommand>
@@ -91,8 +114,8 @@ function buildCompletions(input: string): CompletionItem[] {
   const items: CompletionItem[] = [];
 
   // Skills
-  for (const skill of getAllSkillNames()) {
-    items.push({ label: `/${skill}`, description: "skill" });
+  for (const [name, skill] of allSkills) {
+    items.push({ label: `/${name}`, description: skill.description ?? "skill" });
   }
 
   // Commands
@@ -215,7 +238,7 @@ async function mainLoop(): Promise<void> {
           history,
           llm,
           tools,
-          { mode: input.mode, skills: result.skills ?? [] },
+          { mode: input.mode, skills: result.skills ?? [], autoSkillPrompt },
         )) {
           switch (event.type) {
             case "thinking":

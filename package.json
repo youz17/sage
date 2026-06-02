@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"const{cpSync}=require('fs');cpSync('src/skills/builtin','dist/skills/builtin',{recursive:true})\" && node -e \"const{cpSync}=require('fs');cpSync('src/core/builtin','dist/core/builtin',{recursive:true})\"",
     "start": "tsx src/tui/index.ts",
     "dev": "tsx src/tui/index.ts",
     "test:simple": "tsx src/test.ts"

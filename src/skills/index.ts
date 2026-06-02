@@ -1,3 +1,10 @@
-export { loadSkill, buildSkillPrompt, parseSkillsFromInput, getAllSkillNames } from "./loader.js";
-export { BUILTIN_SKILLS } from "./builtin.js";
-export type { Skill } from "./loader.js";
+export {
+  loadSkill,
+  buildSkillPrompt,
+  getAllSkillNames,
+  getAllSkills,
+  getAutoSkills,
+  buildAutoSkillPrompt,
+  buildUseSkillTool,
+} from "./loader.js";
+export type { Skill, SkillFrontmatter } from "./loader.js";

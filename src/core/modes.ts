@@ -1,60 +1,85 @@
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { getSubdir, scanMdFiles } from "../config/loader.js";
 
-const BUILTIN_MODES: Record<string, string> = {
-  socratic: `## Communication Mode: Socratic
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
-- Default to the Socratic method: ask questions that help the user think, not just receive answers.
-- When multiple valid perspectives exist, present them fairly before sharing your view.
-- Use concrete examples to illustrate abstract points.
-- Guide the user toward insight through well-chosen questions, not declarations.`,
+export interface Mode {
+  name: string;
+  description: string;
+  prompt: string;
+}
 
-  direct: `## Communication Mode: Direct
+function parseFrontmatter(content: string): { description: string; body: string } | null {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) return null;
 
-- Give clear, definitive answers. No hedging, no "it depends" unless genuinely necessary.
-- Lead with the conclusion, then provide supporting reasoning.
-- If you lack information, state exactly what you'd need to give a definitive answer.
-- Do NOT ask Socratic questions or try to guide the user's thinking. Just answer.
-- Be concise and actionable.`,
-
-  discuss: `## Communication Mode: Discussion
-
-- Engage as a thoughtful discussion partner, not an answer machine.
-- Ask probing questions to understand the user's perspective and constraints.
-- Present multiple viewpoints and trade-offs before settling on a position.
-- Help the user think through the problem rather than just giving an answer.
-- Challenge assumptions constructively when you spot them.`,
-
-  deep: `## Communication Mode: Deep Analysis
-
-Before answering any question, you MUST first perform deep analysis:
-
-1. **Surface hidden dimensions.** List 3-5 important factors the user did NOT mention but that would significantly affect the answer. These are implicit assumptions, boundary conditions, or context the user may not have considered.
-2. **Probe each dimension.** For each hidden factor, explain why it matters and how different values would lead to different conclusions.
-3. **Identify traps.** What are the common mistakes or misconceptions people have about this topic? What would a naive answer get wrong?
-4. **Synthesize.** Only after this analysis, provide your answer — grounded in the dimensions you've uncovered.
-
-Format your response to make the depth visible: show your dimensional analysis, then your conclusion.`,
-
-  perspectives: `## Communication Mode: Multi-Perspective
-
-Before answering any question, you MUST analyze it from multiple distinct perspectives:
-
-1. **Identify 3-4 relevant stakeholders or viewpoints.** Choose perspectives that would genuinely disagree or emphasize different aspects. These should be specific roles (e.g., "a startup CTO who values speed" not just "a technical person").
-2. **Argue each perspective authentically.** For each viewpoint, write what that person would actually say — not a strawman. Include their reasoning and what they'd prioritize.
-3. **Find tensions and agreements.** Where do the perspectives conflict? Where do they surprisingly agree?
-4. **Synthesize.** After presenting all perspectives, give your own integrated view that accounts for the strongest points from each.
-
-Make each perspective vivid and specific — the user should feel like they're hearing from real people with genuine convictions.`,
-};
-
-export function getAllModes(): Map<string, string> {
-  const modes = new Map<string, string>(Object.entries(BUILTIN_MODES));
-
-  const customModes = scanMdFiles(getSubdir("modes"));
-  for (const [name, content] of customModes) {
-    modes.set(name, content);
+  const frontmatter: Record<string, string> = {};
+  for (const line of match[1].split("\n")) {
+    const kv = line.match(/^(\w+):\s*(.+)$/);
+    if (kv) frontmatter[kv[1].trim()] = kv[2].trim();
   }
 
+  return {
+    description: frontmatter.description ?? "",
+    body: match[2].trim(),
+  };
+}
+
+function findBuiltinDir(): string | null {
+  const tsxPath = join(__dirname, "builtin");
+  if (existsSync(tsxPath)) return tsxPath;
+
+  const srcPath = join(__dirname, "..", "..", "src", "core", "builtin");
+  if (existsSync(srcPath)) return srcPath;
+
+  return null;
+}
+
+function scanBuiltinModes(): Map<string, Mode> {
+  const modes = new Map<string, Mode>();
+  const builtinDir = findBuiltinDir();
+  if (!builtinDir) return modes;
+
+  for (const file of readdirSync(builtinDir)) {
+    if (!file.endsWith(".md")) continue;
+    const name = file.slice(0, -3);
+    const raw = readFileSync(join(builtinDir, file), "utf-8");
+    const parsed = parseFrontmatter(raw);
+    if (parsed) {
+      modes.set(name, {
+        name,
+        description: parsed.description,
+        prompt: parsed.body,
+      });
+    }
+  }
+  return modes;
+}
+
+function scanCustomModes(): Map<string, Mode> {
+  const modes = new Map<string, Mode>();
+  const customDir = getSubdir("modes");
+  const raw = scanMdFiles(customDir);
+  for (const [name, content] of raw) {
+    const parsed = parseFrontmatter(content);
+    if (parsed) {
+      modes.set(name, {
+        name,
+        description: parsed.description,
+        prompt: parsed.body,
+      });
+    }
+  }
+  return modes;
+}
+
+export function getAllModes(): Map<string, Mode> {
+  const modes = scanBuiltinModes();
+  for (const [name, mode] of scanCustomModes()) {
+    modes.set(name, mode);
+  }
   return modes;
 }
 
@@ -67,5 +92,8 @@ export function isValidMode(mode: string): boolean {
 }
 
 export function getModePrompt(mode: string): string {
-  return getAllModes().get(mode) ?? BUILTIN_MODES.socratic;
+  const all = getAllModes();
+  const found = all.get(mode);
+  if (found) return found.prompt;
+  return all.get("default")?.prompt ?? "";
 }

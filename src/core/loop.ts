@@ -2,7 +2,7 @@ import type { AgentConfig, AgentEvent, Message, ToolCall } from "../types.js";
 import type { LLMClient } from "../llm/client.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import { buildSystemPrompt } from "./prompts.js";
-import { buildSkillPrompt } from "../skills/loader.js";
+import { buildSkillPrompt, loadSkill } from "../skills/loader.js";
 
 const DEFAULT_CONFIG: AgentConfig = {
   maxIterations: 20,
@@ -19,7 +19,7 @@ export async function* runAgent(
 ): AsyncGenerator<AgentEvent> {
   const cfg = { ...DEFAULT_CONFIG, ...config };
   const skillPrompt = buildSkillPrompt(cfg.skills);
-  const systemPrompt = buildSystemPrompt(cfg.mode, skillPrompt);
+  const systemPrompt = buildSystemPrompt(cfg.mode, skillPrompt, cfg.autoSkillPrompt);
 
   const messages: Message[] = [
     { role: "system", content: systemPrompt },
@@ -30,6 +30,7 @@ export async function* runAgent(
   const toolSchemas = tools.getSchemas();
   let iteration = 0;
   let lastToolCall = "";
+  const activatedSkills = new Set<string>();
 
   while (iteration < cfg.maxIterations) {
     iteration++;
@@ -102,7 +103,24 @@ export async function* runAgent(
         iteration,
       };
 
-      const result = await tools.execute(toolName, toolArgs);
+      let result: string;
+
+      if (toolName === "use_skill") {
+        const skillName = toolArgs.skill as string;
+        if (activatedSkills.has(skillName)) {
+          result = `Skill "${skillName}" is already active.`;
+        } else {
+          const skill = loadSkill(skillName);
+          if (skill) {
+            activatedSkills.add(skillName);
+            result = `Skill "${skillName}" activated. Instructions:\n${skill.prompt}`;
+          } else {
+            result = `Skill "${skillName}" not found.`;
+          }
+        }
+      } else {
+        result = await tools.execute(toolName, toolArgs);
+      }
 
       yield {
         type: "tool_result",
