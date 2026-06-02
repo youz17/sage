@@ -6,7 +6,7 @@ import { buildSkillPrompt, loadSkill } from "../skills/loader.js";
 
 const DEFAULT_CONFIG: AgentConfig = {
   maxIterations: 20,
-  mode: "socratic",
+  mode: "default",
   skills: [],
 };
 

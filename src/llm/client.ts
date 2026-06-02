@@ -1,13 +1,8 @@
 import type { LLMConfig, LLMResponse, Message, ToolCall, ToolSchema } from "../types.js";
 
-const DEFAULT_CONFIG: LLMConfig = {
-  apiKey: "",
-  baseUrl: "https://api.deepseek.com",
-  model: "deepseek-chat",
-};
 
-export function createLLMClient(config: Partial<LLMConfig> = {}): LLMClient {
-  return new LLMClient({ ...DEFAULT_CONFIG, ...config });
+export function createLLMClient(config: LLMConfig): LLMClient {
+  return new LLMClient({ ...config });
 }
 
 export class LLMClient {

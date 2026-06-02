@@ -27,7 +27,7 @@ tools.register(createReflectTool(llm));
 tools.register(createChallengeTool(llm));
 
 const history: Message[] = [];
-let currentMode = "socratic";
+let currentMode = "default";
 const ALL_MODES = getAllModeNames();
 
 const rl = readline.createInterface({

@@ -14,6 +14,6 @@ export const DEFAULT_CONFIG: SageConfig = {
     model: "deepseek-pro-flash",
     apiKey: "",
   },
-  defaultMode: "socratic",
+  defaultMode: "default",
   tavilyApiKey: "",
 };
