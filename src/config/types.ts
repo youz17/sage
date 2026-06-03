@@ -1,19 +1,21 @@
+export interface SageModelConfig {
+  provider: string;
+  model: string;
+  apiKey: string;
+}
+
 export interface SageConfig {
-  model: {
-    provider: string;
-    model: string;
-    apiKey: string;
-  };
+  model: SageModelConfig;
   defaultMode: string;
   tavilyApiKey: string;
 }
 
 export const DEFAULT_CONFIG: SageConfig = {
   model: {
-    provider: "https://api.deepseek.com",
-    model: "deepseek-v4-pro",
+    provider: "deepseek",
+    model: "deepseek-chat",
     apiKey: "",
   },
-  defaultMode: "default",
+  defaultMode: "socratic",
   tavilyApiKey: "",
 };
