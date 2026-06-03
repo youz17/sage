@@ -41,7 +41,7 @@ function generateTitle(messages: AgentMessage[]): string {
 export class SessionManager {
   private current: Session | null = null;
 
-  newSession(mode: string = "socratic"): Session {
+  newSession(mode: string = "default"): Session {
     const id = generateId();
     const session: Session = {
       id,

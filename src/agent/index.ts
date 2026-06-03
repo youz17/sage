@@ -15,7 +15,7 @@ export function createSageAgent(
     sessionId?: string;
   } = {},
 ) {
-  const { mode = "socratic", skillNames = [], tavilyApiKey, sessionId } = options;
+  const { mode = "default", skillNames = [], tavilyApiKey, sessionId } = options;
 
   const tools: AgentTool[] = [
     createReflectTool(),
@@ -30,7 +30,7 @@ export function createSageAgent(
     initialState: {
       systemPrompt: buildSystemPrompt(mode, skillNames),
       model,
-      thinkingLevel: "medium",
+      thinkingLevel: "high",
       tools,
       messages: [],
     },
