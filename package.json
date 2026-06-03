@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc && node -e \"const{cpSync}=require('fs');cpSync('src/skills/builtin','dist/skills/builtin',{recursive:true})\" && node -e \"const{cpSync}=require('fs');cpSync('src/core/builtin','dist/core/builtin',{recursive:true})\"",
-    "start": "tsx src/tui/index.ts",
-    "dev": "tsx src/tui/index.ts",
+    "start": "tsx src/app.ts",
+    "dev": "tsx src/app.ts",
     "test:simple": "tsx src/test.ts"
   },
   "dependencies": {
