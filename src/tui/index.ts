@@ -1,300 +1,188 @@
-import "dotenv/config";
-import { loadConfig } from "../config/index.js";
-import { createLLMClient } from "../llm/index.js";
+import chalk from "chalk";
 import {
-  ToolRegistry,
-  createWebSearchTool,
-  createReflectTool,
-  createChallengeTool,
-  createWebFetchTool,
-} from "../tools/index.js";
-import { runAgent } from "../core/index.js";
-import { getAllModes, isValidMode } from "../core/modes.js";
-import {
-  getAllSkills,
-  getAutoSkills,
-  buildAutoSkillPrompt,
-  buildUseSkillTool,
-} from "../skills/loader.js";
-import type { ToolDefinition } from "../types.js";
-import { SessionManager } from "../session/index.js";
-import type { CompletionItem } from "./completer.js";
-import { Renderer } from "./renderer.js";
-import { InputEditor } from "./input.js";
+  TUI,
+  ProcessTerminal,
+  Container,
+  Editor,
+  Markdown,
+  Text,
+  Spacer,
+  CombinedAutocompleteProvider,
+  Key,
+  matchesKey,
+} from "@earendil-works/pi-tui";
+import type { Component, MarkdownTheme } from "@earendil-works/pi-tui";
 
-const config = loadConfig();
+// --- Themes ---
 
-if (!config.model.apiKey) {
-  console.error("Error: model.apiKey is required in ~/.sage/config.json");
-  process.exit(1);
+const sageMarkdownTheme: MarkdownTheme = {
+  heading: (text: string) => chalk.bold.blue(text),
+  link: (text: string) => chalk.underline.cyan(text),
+  linkUrl: (text: string) => chalk.dim(text),
+  code: (text: string) => chalk.yellow(text),
+  codeBlock: (text: string) => chalk.yellow(text),
+  codeBlockBorder: (text: string) => chalk.dim(text),
+  quote: (text: string) => chalk.italic.dim(text),
+  quoteBorder: (text: string) => chalk.dim("│"),
+  hr: (text: string) => chalk.dim(text),
+  listBullet: (text: string) => chalk.cyan(text),
+  bold: (text: string) => chalk.bold(text),
+  italic: (text: string) => chalk.italic(text),
+  strikethrough: (text: string) => chalk.strikethrough.dim(text),
+  underline: (text: string) => chalk.underline(text),
+};
+
+// --- Commands ---
+
+const SLASH_COMMANDS = [
+  { name: "mode", description: "Switch communication mode (socratic|direct|discuss|deep|perspectives)" },
+  { name: "session", description: "Session management: new|list|resume|delete" },
+  { name: "skills", description: "List available skills" },
+  { name: "reflect", description: "Activate reflect skill" },
+  { name: "challenge", description: "Activate challenge skill" },
+  { name: "goal", description: "Activate goal skill" },
+  { name: "quit", description: "Exit Sage" },
+  { name: "exit", description: "Exit Sage" },
+];
+
+// --- Message Rendering ---
+
+class SageMessages extends Container {
+  private _streamingMarkdown: Markdown | null = null;
+  private _streamingContent = "";
+
+  addUserMessage(text: string): void {
+    this.addChild(new Spacer(1));
+    this.addChild(new Text(`  ${chalk.bold.green("You:")} ${text}`));
+  }
+
+  startAssistantMessage(): Markdown {
+    this.addChild(new Spacer(1));
+    const header = new Text(`  ${chalk.bold.blue("Sage:")}`);
+    this.addChild(header);
+    this._streamingMarkdown = new Markdown("", 2, 0, sageMarkdownTheme);
+    this.addChild(this._streamingMarkdown);
+    this._streamingContent = "";
+    return this._streamingMarkdown;
+  }
+
+  appendDelta(delta: string): void {
+    if (this._streamingMarkdown) {
+      this._streamingContent += delta;
+      this._streamingMarkdown.setText(this._streamingContent);
+    }
+  }
+
+  finishAssistantMessage(): void {
+    this._streamingMarkdown = null;
+    this._streamingContent = "";
+  }
+
+  addToolCall(name: string, _callId: string): void {
+    const label = new Text(`  ${chalk.dim("[tool]")} ${chalk.cyan(name)}`);
+    this.addChild(label);
+  }
 }
 
-const llm = createLLMClient({
-  apiKey: config.model.apiKey,
-  baseUrl: config.model.provider,
-  model: config.model.model,
-});
+// --- TUI Factory ---
 
-const tools = new ToolRegistry();
-if (config.tavilyApiKey) {
-  tools.register(createWebSearchTool(config.tavilyApiKey));
-}
-tools.register(createReflectTool(llm));
-tools.register(createChallengeTool(llm));
-tools.register(createWebFetchTool());
-
-const allSkills = getAllSkills();
-const allModes = getAllModes();
-const autoSkills = getAutoSkills(allSkills);
-const autoSkillPrompt = buildAutoSkillPrompt(autoSkills);
-
-if (autoSkills.length > 0) {
-  const useSkillTool = buildUseSkillTool(autoSkills);
-  tools.register({
-    ...useSkillTool,
-    execute: async () => "", // dummy — intercepted by agent loop
-  } as ToolDefinition);
+export interface SageTUI {
+  tui: TUI;
+  shutdown: () => void;
+  onStreamDelta: (delta: string) => void;
+  onToolCallStart: (name: string, args: Record<string, unknown>, callId: string) => void;
+  onToolCallEnd: (callId: string) => void;
 }
 
-const sessionManager = new SessionManager();
+export interface SageTUIHandlers {
+  onInput: (text: string) => void;
+  onQuit: () => void;
+  onModeChange: (mode: string) => void;
+  onSessionCommand: (args: string) => void;
+  onSkillActivate: (skill: string) => void;
+}
 
-const DIM = "\x1b[2m";
-const CYAN = "\x1b[36m";
-const GREEN = "\x1b[32m";
-const RED = "\x1b[31m";
-const RESET = "\x1b[0m";
+export function createSageTUI(handlers: SageTUIHandlers): SageTUI {
+  const terminal = new ProcessTerminal();
+  const tui = new TUI(terminal);
 
-function buildCompletions(input: string): CompletionItem[] {
-  const trimmed = input.trim();
-  const parts = trimmed.split(/\s+/);
+  const messages = new SageMessages();
+  tui.addChild(messages);
 
-  // Two-level: /mode <modename>
-  if (parts[0] === "/mode" && parts.length >= 2) {
-    const query = parts.slice(1).join(" ").toLowerCase();
-    const modeItems: CompletionItem[] = [];
-    for (const [name, mode] of allModes) {
-      if (name.startsWith(query)) {
-        modeItems.push({ label: name, description: mode.description || "mode" });
+  const editor = new Editor(tui, {
+    borderColor: (s: string) => chalk.cyan(s),
+    selectList: {
+      selectedPrefix: (s: string) => chalk.cyan(`> ${s}`),
+      selectedText: (s: string) => chalk.bold(s),
+      description: (s: string) => chalk.dim(s),
+      scrollInfo: (s: string) => chalk.dim(s),
+      noMatch: (s: string) => chalk.red(s),
+    },
+  });
+
+  const autocomplete = new CombinedAutocompleteProvider(SLASH_COMMANDS, process.cwd());
+  editor.setAutocompleteProvider(autocomplete);
+
+  editor.onSubmit = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    if (trimmed.startsWith("/")) {
+      const parts = trimmed.slice(1).split(/\s+/);
+      const cmd = parts[0];
+      const args = parts.slice(1).join(" ");
+
+      switch (cmd) {
+        case "quit":
+        case "exit":
+          handlers.onQuit();
+          return;
+        case "mode":
+          handlers.onModeChange(args);
+          return;
+        case "session":
+          handlers.onSessionCommand(args);
+          return;
+        case "reflect":
+        case "challenge":
+        case "goal":
+          handlers.onSkillActivate(cmd);
+          return;
       }
     }
-    return modeItems;
-  }
 
-  // Two-level: /session <subcommand>
-  if (parts[0] === "/session") {
-    if (parts.length === 2) {
-      const query = parts[1].toLowerCase();
-      return [
-        { label: "new", description: "Start new session" },
-        { label: "list", description: "List all sessions" },
-        { label: "resume", description: "Resume a session" },
-        { label: "delete", description: "Delete a session" },
-      ].filter((item) => item.label.startsWith(query));
-    }
-    if (parts.length >= 3 && (parts[1] === "resume" || parts[1] === "delete")) {
-      const query = parts.slice(2).join(" ").toLowerCase();
-      return sessionManager
-        .list()
-        .filter((s) => s.id.includes(query) || s.title.toLowerCase().includes(query))
-        .map((s, i) => ({ label: String(i + 1), description: `${s.title} (${s.id})` }));
-    }
-    if (parts.length < 2) {
-      return [
-        { label: "new", description: "Start new session" },
-        { label: "list", description: "List all sessions" },
-        { label: "resume", description: "Resume a session" },
-        { label: "delete", description: "Delete a session" },
-      ];
-    }
-    return [];
-  }
+    messages.addUserMessage(trimmed);
+    messages.startAssistantMessage();
+    handlers.onInput(trimmed);
+  };
 
-  // Top-level: /command
-  const query = trimmed.startsWith("/") ? trimmed.slice(1).toLowerCase() : "";
-  const items: CompletionItem[] = [];
+  const spacer = new Spacer(1);
+  tui.addChild(spacer);
+  tui.addChild(editor);
+  tui.setFocus(editor);
 
-  // Skills
-  for (const [name, skill] of allSkills) {
-    items.push({ label: `/${name}`, description: skill.description ?? "skill" });
-  }
-
-  // Commands
-  items.push({ label: "/mode", description: "Switch mode" });
-  items.push({ label: "/session", description: "Manage sessions" });
-  items.push({ label: "/quit", description: "Exit" });
-
-  return items.filter((item) => item.label.slice(1).startsWith(query));
-}
-
-const renderer = new Renderer();
-const input = new InputEditor(config.defaultMode, buildCompletions);
-
-// Startup: resume latest session or create new
-const isNewFlag = process.argv.includes("--new");
-if (!isNewFlag) {
-  const resumed = sessionManager.resumeLatest();
-  if (resumed) {
-    const mode = isValidMode(resumed.mode) ? resumed.mode : config.defaultMode;
-    input.setMode(mode);
-    if (!isValidMode(resumed.mode)) {
-      sessionManager.setMode(mode);
-    }
-    renderer.renderWelcome(mode, tools.list());
-    console.log(`  ${DIM}Resumed session: ${resumed.title} (${resumed.id})${RESET}`);
-    console.log(`  ${DIM}${resumed.messages.length} messages loaded${RESET}\n`);
-    renderer.renderHistory(resumed.messages);
-  } else {
-    sessionManager.createSession(input.mode);
-    renderer.renderWelcome(input.mode, tools.list());
-  }
-} else {
-  sessionManager.createSession(input.mode);
-  renderer.renderWelcome(input.mode, tools.list());
-}
-
-function handleSessionCommand(args: string[]): void {
-  const sub = args[0];
-
-  if (sub === "new") {
-    const session = sessionManager.createSession(input.mode);
-    console.log(`  ${GREEN}New session: ${session.id}${RESET}\n`);
-    return;
-  }
-
-  if (sub === "list") {
-    const sessions = sessionManager.list();
-    if (sessions.length === 0) {
-      console.log(`  ${DIM}No saved sessions${RESET}\n`);
-      return;
-    }
-    console.log();
-    for (let i = 0; i < sessions.length; i++) {
-      const s = sessions[i];
-      const current = sessionManager.getCurrent()?.id === s.id ? " ←" : "";
-      console.log(`  ${CYAN}${i + 1}.${RESET} ${s.title} ${DIM}(${s.id}, ${s.messageCount} msgs)${current}${RESET}`);
-    }
-    console.log();
-    return;
-  }
-
-  if (sub === "resume" && args[1]) {
-    const session = sessionManager.resume(args[1]);
-    if (session) {
-      input.setMode(session.mode);
-      console.log(`  ${GREEN}Resumed: ${session.title} (${session.messages.length} messages)${RESET}\n`);
-    } else {
-      console.log(`  ${RED}Session not found: ${args[1]}${RESET}\n`);
-    }
-    return;
-  }
-
-  if (sub === "delete" && args[1]) {
-    const ok = sessionManager.delete(args[1]);
-    if (ok) {
-      console.log(`  ${GREEN}Deleted session${RESET}\n`);
-    } else {
-      console.log(`  ${RED}Session not found: ${args[1]}${RESET}\n`);
-    }
-    return;
-  }
-
-  console.log(`  ${DIM}Usage: /session new|list|resume <id>|delete <id>${RESET}\n`);
-}
-
-async function mainLoop(): Promise<void> {
-  while (true) {
-    const result = await input.prompt();
-
-    if (result.type === "quit") {
-      sessionManager.save();
-      console.log("\n  Bye!\n");
+  tui.addInputListener((data: string) => {
+    if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.ctrl("d"))) {
+      handlers.onQuit();
+      tui.stop();
       process.exit(0);
     }
+    return undefined;
+  });
 
-    if (result.type === "mode_switch") {
-      if (result.mode) {
-        input.setMode(result.mode);
-        sessionManager.setMode(result.mode);
-        renderer.renderModeSwitch(result.mode);
-      }
-      continue;
-    }
+  tui.start();
 
-    if (result.type === "session_command") {
-      handleSessionCommand(result.sessionArgs ?? []);
-      continue;
-    }
-
-    if (result.type === "message" && result.text) {
-      renderer.renderUserMessage(result.text);
-      renderer.renderAgentHeader(input.mode);
-      renderer.startSpinner();
-
-      const userMsg = { role: "user" as const, content: result.text };
-      sessionManager.addMessage(userMsg);
-
-      const history = sessionManager.getMessages().slice(0, -1);
-      let fullText = "";
-      let spinnerStopped = false;
-
-      try {
-        for await (const event of runAgent(
-          result.text,
-          history,
-          llm,
-          tools,
-          { mode: input.mode, skills: result.skills ?? [], autoSkillPrompt },
-        )) {
-          switch (event.type) {
-            case "thinking":
-              break;
-
-            case "tool_call":
-              if (!spinnerStopped) { renderer.stopSpinner(); spinnerStopped = true; }
-              renderer.renderToolCall(event.toolName ?? "unknown", event.toolArgs ?? {});
-              renderer.startSpinner();
-              break;
-
-            case "tool_result":
-              renderer.stopSpinner();
-              spinnerStopped = true;
-              renderer.renderToolResult(event.toolName ?? "unknown", event.content ?? "");
-              renderer.startSpinner();
-              spinnerStopped = false;
-              break;
-
-            case "text_chunk":
-              fullText += event.content ?? "";
-              break;
-
-            case "text_done":
-              renderer.stopSpinner();
-              spinnerStopped = true;
-              renderer.renderMarkdownContent(event.content ?? fullText);
-              sessionManager.addMessage({
-                role: "assistant",
-                content: event.content ?? fullText,
-              });
-              break;
-
-            case "error":
-              renderer.stopSpinner();
-              spinnerStopped = true;
-              renderer.renderError(event.content ?? "Unknown error");
-              break;
-
-            case "done":
-              renderer.stopSpinner();
-              renderer.renderDone();
-              break;
-          }
-        }
-      } catch (err) {
-        renderer.stopSpinner();
-        renderer.renderError((err as Error).message);
-      }
-    }
-  }
+  return {
+    tui,
+    shutdown() {
+      tui.stop();
+    },
+    onStreamDelta(delta: string) {
+      messages.appendDelta(delta);
+    },
+    onToolCallStart(name: string, _args: Record<string, unknown>, callId: string) {
+      messages.addToolCall(name, callId);
+    },
+    onToolCallEnd(_callId: string) {},
+  };
 }
-
-mainLoop();
