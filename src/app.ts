@@ -5,10 +5,31 @@ import { SessionManager } from "./session/manager.js";
 import { getAllModeNames, isValidMode } from "./core/modes.js";
 import { buildSystemPrompt } from "./core/prompts.js";
 
+function setApiKeyEnv(provider: string, apiKey: string): void {
+  const envVarMap: Record<string, string> = {
+    deepseek: "DEEPSEEK_API_KEY",
+    openai: "OPENAI_API_KEY",
+    anthropic: "ANTHROPIC_API_KEY",
+    google: "GOOGLE_API_KEY",
+    groq: "GROQ_API_KEY",
+    mistral: "MISTRAL_API_KEY",
+    xai: "XAI_API_KEY",
+    openrouter: "OPENROUTER_API_KEY",
+    cerebras: "CEREBRAS_API_KEY",
+    vertex: "GOOGLE_API_KEY",
+    bedrock: "AWS_ACCESS_KEY_ID",
+  };
+  const envVar = envVarMap[provider.toLowerCase()];
+  if (envVar) {
+    process.env[envVar] = apiKey;
+  }
+}
+
 async function main() {
   const { createSageTUI } = await import("./tui/index.js");
 
   const config = loadConfig();
+  setApiKeyEnv(config.model.provider, config.model.apiKey);
   const model = getModel(config.model.provider as any, config.model.model);
 
   // Session setup
