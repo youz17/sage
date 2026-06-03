@@ -1,78 +1,87 @@
-# Sage — AI Coding Agent
+# Sage — AI Agent
 
-Claude-Code 风格的终端 AI 对话 agent，支持 TUI、多模式、技能系统、工具调用。
+基于 [Pi](https://pi.dev) 引擎的终端 AI 对话 agent。支持 TUI、多模式、技能系统、工具调用。
 
 ## 运行
 
 ```
 npm start        # 启动 TUI
 npm run dev      # 同上
-npm run build    # tsc → dist/
+npm run build    # tsc 类型检查
+npm run test     # 快速集成测试（非 TUI）
 ```
 
-Flags: `--new` 跳过会话恢复，开启全新会话。
+Flags: `--new <name?>` 跳过会话恢复、`--resume <name?>` 恢复指定会话。
 
 ## 技术栈
 
-TypeScript 5.8 (ES2022, Node16 ESM)，`tsx` 直接运行，`marked` + `marked-terminal` 渲染 Markdown，LLM 走 OpenAI 兼容 `/v1/chat/completions`（默认 DeepSeek）。
+TypeScript (ESM)，`tsx` 运行。自建 prompt/session/config 层，底层由 Pi 包驱动：
+
+| 层 | Pi 包 | Sage 角色 |
+|---|---|---|
+| LLM | `@pi-ai` | provider 选择 + apiKey 注入 |
+| Agent | `@pi-agent-core` | tool 注册 + memory + steering/follow-up |
+| TUI | `@pi-tui` | 自定组件（SageMessages / SageStatusBar）+ 主题 |
 
 ## 项目结构
 
 ```
 src/
-├── tui/index.ts         # 入口，TUI 主循环
-├── tui/input.ts         # 原始模式输入、多行编辑、历史、Tab 补全
-├── tui/renderer.ts      # 流式渲染：spinner、工具调用、Markdown
-├── tui/completer.ts     # 斜杠命令自动补全
-├── core/loop.ts         # runAgent() 异步生成器，核心 agent 循环
-├── core/modes.ts        # 5 种内置模式 + ~/.sage/modes/*.md 自定义模式
-├── core/prompts.ts      # 构建 system prompt（模式 + rules + skills）
-├── llm/client.ts        # LLMClient：fetch 调用 OpenAI 兼容 API
-├── config/loader.ts     # ~/.sage/ 目录初始化、配置加载、*.md 扫描
-├── session/manager.ts   # SessionManager：CRUD、自动保存、恢复
-├── skills/loader.ts     # 技能加载（内置 + ~/.sage/skills/）
-├── tools/               # 工具注册与执行
-│   ├── registry.ts      #   ToolRegistry
-│   ├── web-search.ts    #   Tavily 搜索
-│   ├── web-fetch.ts     #   HTTP fetch + HTML 剥离
-│   ├── reflect.ts       #   自省工具（调用 LLM）
-│   └── challenge.ts     #   魔鬼代言人工具（调用 LLM）
-└── types.ts             # Message, ToolDefinition, AgentEvent 等核心类型
+├── app.ts               # 入口：加载 config → 建 model → 建 Agent → 建 TUI
+├── agent/
+│   ├── index.ts         # createSageAgent() 工厂
+│   ├── tools.ts          # Sage 自定 tool（web_search / reflect / challenge）
+│   └── memory.ts         # compactMemory() 上下文压缩
+├── tui/
+│   └── index.ts          # TUI 组件：SageMessages / SageStatusBar / 补全 / 快捷键
+├── config/
+│   ├── loader.ts         # ~/.sage/ 目录初始化、config.json 加载、*.md 扫描
+│   └── types.ts          # SageConfig / SageModelConfig
+├── core/
+│   ├── modes.ts          # 5 种内置模式 + ~/.sage/modes/*.md
+│   └── prompts.ts        # buildSystemPrompt(mode, skillNames)
+├── session/
+│   └── manager.ts        # SessionManager：CRUD、JSON 持久化
+├── skills/
+│   ├── loader.ts         # 技能加载（内置 + ~/.sage/skills/）
+│   └── builtin.ts        # 3 个内置技能 prompt
+├── log/
+│   └── logger.ts         # JSONL 日志输出
+└── test.ts               # 非 TUI 集成测试
 ```
 
 ## 数据流
 
 ```
-输入 → InputEditor → /command 解析 → SessionManager + runAgent()
-→ 构建 system prompt (mode + rules + skills)
-→ LLMClient.stream() → ToolRegistry.execute() → 流式渲染到 Renderer
-→ 每轮自动保存会话到 ~/.sage/sessions/<id>.json
+用户输入（Editor）
+  → slash 命令解析
+  → agent.prompt(text)
+  → Agent 事件流:
+     message_update (text_delta) → TUI 流式渲染
+     message_update (thinking_delta) → TUI 思考显示
+     tool_execution_start/end → TUI tool 标签
+     agent_end → session 自动保存 + 日志写入
 ```
-
-## 关键类型 (`src/types.ts`)
-
-- `Message` — `{ role, content, tool_calls?, tool_call_id? }`
-- `ToolDefinition` — `{ name, description, parameters, execute }`
-- `AgentEvent` — `{ type, content?, toolName?, toolCallId?, iteration? }`
-  - type: `thinking | tool_call | tool_result | text_chunk | text_done | error | done`
-- `AgentConfig` — `{ maxIterations, mode, skills?, onEvent? }`
 
 ## 配置
 
 `~/.sage/config.json`（首次运行自动创建）：
 ```json
 {
-  "model": { "provider": "https://api.deepseek.com/v1", "model": "deepseek-pro-flash", "apiKey": "" },
+  "model": { "provider": "deepseek", "model": "deepseek-v4-pro", "apiKey": "" },
   "defaultMode": "socratic",
   "tavilyApiKey": ""
 }
 ```
 
-自定义扩展目录（`~/.sage/` 下）：
+`provider` 用 Pi 名称（`deepseek` / `openai` / `anthropic` ...），不是 URL。
+
+扩展目录：
 - `modes/*.md` — 自定义对话模式（同名覆盖内置）
-- `skills/*.md` — 自定义技能（同名覆盖内置）
+- `skills/*.md` — 自定义技能 prompt（同名覆盖内置）
 - `rules/*.md` — 全局规则（全部注入 system prompt）
 - `sessions/*.json` — 会话存档
+- `logs/*.jsonl` — 运行日志
 
 ## 内置模式
 
@@ -86,17 +95,51 @@ src/
 
 ## 内置技能
 
-- `reflect` — 先调用 reflect 工具自省再回答
-- `challenge` — 先调用 challenge 工具评审再回答
+- `reflect` — 激活自省模式
+- `challenge` — 激活魔鬼代言人模式
 - `goal` — 任务分解、逐步推进
 
 ## TUI 斜杠命令
 
-- `/mode <name>` — 切换模式
-- `/<skill>` — 激活技能
-- `/session new|list|resume <id>|delete <id>` — 会话管理
-- `/quit | /exit` — 退出（Ctrl+C / Ctrl+D 也可）
+- `/mode <name>` — 切换模式（补全 mode 名）
+- `/session-new <name?>` — 新会话
+- `/session-list` — 列出会话
+- `/session-resume <name>` — 恢复会话（补全 session 名）
+- `/session-delete <name>` — 删除会话（补全 session 名）
+- `/reflect` / `/challenge` / `/goal` — 激活技能
+- `/quit` / `/exit` — 退出（Ctrl+C / Ctrl+D 也可）
 
-## 设计规格
+## 调试
 
-`docs/specs/` 下有 2 份设计文档，决策优先参考这些文档。
+### 日志
+
+每次运行在 `~/.sage/logs/<session-id>.jsonl` 输出结构化日志。**出问题先读日志。**
+
+```
+{"ts":"...","type":"session:init","id":"...","mode":"socratic","model":"deepseek-v4-pro"}
+{"ts":"...","type":"agent:prompt","text":"What is 2+2?"}
+{"ts":"...","type":"tool:start","name":"web_search","args":{"query":"..."}}
+{"ts":"...","type":"tool:end","name":"web_search"}
+{"ts":"...","type":"agent:response","text":"2+2=4"}
+{"ts":"...","type":"session:save","id":"..."}
+{"ts":"...","type":"error","message":"...","stack":"..."}
+```
+
+所有 API key 自动替换为 `***`。
+
+### 快速诊断
+
+```bash
+# 看最后一次运行的所有事件
+tail -20 ~/.sage/logs/*.jsonl | sort -t, -k2
+
+# 只看错误
+grep '"error"' ~/.sage/logs/*.jsonl
+
+# 只看 LLM 调用
+grep '"agent:prompt\|agent:response"' ~/.sage/logs/*.jsonl
+```
+
+## 设计文档
+
+架构和历史设计见 `docs/specs/`。
