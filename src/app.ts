@@ -137,21 +137,19 @@ async function main() {
 
   // Wire agent events to TUI streaming
   agent.subscribe(async (event) => {
-    switch (event.type) {
-      case "message_update": {
-        const e = event.assistantMessageEvent;
-        if (e.type === "text_delta") {
-          tui.onStreamDelta(e.delta);
-        }
-        break;
-      }
-      case "tool_execution_start":
-        tui.onToolCallStart(event.toolName, event.args as Record<string, unknown>, event.toolCallId);
-        break;
-      case "agent_end":
-        sessionManager.updateMessages(agent.state.messages as any[]);
-        sessionManager.saveCurrent();
-        break;
+    if (event.type === "message_update" && (event as any).assistantMessageEvent?.type === "text_delta") {
+      tui.onStreamDelta((event as any).assistantMessageEvent.delta);
+    }
+    if (event.type === "tool_execution_start") {
+      tui.onToolCallStart(
+        (event as any).toolName,
+        (event as any).args ?? {},
+        (event as any).toolCallId,
+      );
+    }
+    if (event.type === "agent_end") {
+      sessionManager.updateMessages(agent.state.messages as any[]);
+      sessionManager.saveCurrent();
     }
   });
 
