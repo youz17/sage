@@ -3,6 +3,7 @@ import { loadConfig } from "./config/loader.js";
 import { createSageAgent } from "./agent/index.js";
 import { SessionManager } from "./session/manager.js";
 import { getAllModeNames, isValidMode } from "./core/modes.js";
+import { Logger } from "./log/logger.js";
 import { buildSystemPrompt } from "./core/prompts.js";
 
 function setApiKeyEnv(provider: string, apiKey: string): void {
@@ -23,6 +24,13 @@ function setApiKeyEnv(provider: string, apiKey: string): void {
   if (envVar) {
     process.env[envVar] = apiKey;
   }
+}
+
+function extractAssistantText(messages: any[]): string {
+  const last = [...messages].reverse().find((m: any) => m.role === "assistant");
+  if (!last) return "";
+  if (typeof last.content === "string") return last.content;
+  return JSON.stringify(last.content).slice(0, 1000);
 }
 
 function findSessionByName(name: string) {
@@ -102,6 +110,10 @@ async function main() {
     }
   }
 
+  // Logger setup
+  const logger = new Logger(session.id);
+  logger.log("session:init", { id: session.id, mode: session.mode, model: config.model.model });
+
   // Agent setup
   let activeSkills: string[] = [];
   let currentMode = session.mode;
@@ -121,7 +133,9 @@ async function main() {
   // TUI setup
   const tui = createSageTUI({
     onInput(text: string) {
+      logger.log("agent:prompt", { text });
       agent.prompt(text).catch((err: Error) => {
+        logger.log("error", { message: err.message, stack: err.stack });
         console.error("Agent error:", err);
       });
     },
@@ -129,6 +143,7 @@ async function main() {
     onQuit() {
       sessionManager.updateMessages(agent.state.messages as any[]);
       sessionManager.saveCurrent();
+      logger.close();
     },
 
     onModeChange(mode: string) {
@@ -137,6 +152,7 @@ async function main() {
         return;
       }
       currentMode = mode;
+      logger.log("mode:change", { mode });
       sessionManager.setMode(mode);
       agent.state.systemPrompt = buildSystemPrompt(mode, activeSkills);
       updateStatusBar();
@@ -146,6 +162,7 @@ async function main() {
       sessionManager.saveCurrent();
       const s = sessionManager.newSession(currentMode);
       if (name) s.title = name;
+      logger.log("session:new", { id: s.id, title: name || "(auto)" });
       agent.state.messages = [] as any;
       updateStatusBar();
     },
@@ -170,6 +187,7 @@ async function main() {
       s.id = resumed.id;
       s.title = resumed.title;
       s.messages = resumed.messages;
+      logger.log("session:resume", { id: s.id, title: s.title || s.id });
       agent.state.messages = [...resumed.messages] as any;
       currentMode = resumed.mode;
       agent.state.systemPrompt = buildSystemPrompt(resumed.mode, activeSkills);
@@ -193,9 +211,11 @@ async function main() {
     onSkillActivate(skill: string) {
       if (activeSkills.includes(skill)) {
         activeSkills = activeSkills.filter((s) => s !== skill);
+        logger.log("skill:deactivate", { skill });
         console.log(`Skill "${skill}" deactivated.`);
       } else {
         activeSkills.push(skill);
+        logger.log("skill:activate", { skill });
         console.log(`Skill "${skill}" activated.`);
       }
       agent.state.systemPrompt = buildSystemPrompt(currentMode, activeSkills);
@@ -209,7 +229,7 @@ async function main() {
   function updateStatusBar() {
     tui.updateStatus({
       mode: currentMode,
-      thinkingLevel: "medium",
+      thinkingLevel: "high",
       modelName: config.model.model,
       skills: activeSkills,
     });
@@ -225,6 +245,7 @@ async function main() {
       }
       if (ae?.type === "thinking_delta") {
         tui.onThinkingDelta(ae.delta);
+        // Don't log every thinking delta — too chatty. Log only on agent_end.
       }
     }
     if (event.type === "tool_execution_start") {
@@ -233,10 +254,17 @@ async function main() {
         (event as any).args ?? {},
         (event as any).toolCallId,
       );
+      logger.log("tool:start", { name: (event as any).toolName, args: (event as any).args });
+    }
+    if (event.type === "tool_execution_end") {
+      logger.log("tool:end", { name: (event as any).toolName, callId: (event as any).toolCallId });
     }
     if (event.type === "agent_end") {
+      const fullResp = extractAssistantText(agent.state.messages);
+      logger.log("agent:response", { text: fullResp });
       sessionManager.updateMessages(agent.state.messages as any[]);
       sessionManager.saveCurrent();
+      logger.log("session:save", { id: session.id });
     }
   });
 
@@ -244,6 +272,7 @@ async function main() {
   process.on("SIGINT", () => {
     sessionManager.updateMessages(agent.state.messages as any[]);
     sessionManager.saveCurrent();
+    logger.close();
     tui.shutdown();
     process.exit(0);
   });

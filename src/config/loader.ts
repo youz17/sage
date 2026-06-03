@@ -6,7 +6,7 @@ import { DEFAULT_CONFIG, type SageConfig } from "./types.js";
 const SAGE_DIR = join(homedir(), ".sage");
 const CONFIG_FILE = join(SAGE_DIR, "config.json");
 
-const SUBDIRS = ["modes", "skills", "rules", "sessions"] as const;
+const SUBDIRS = ["modes", "skills", "rules", "sessions", "logs"] as const;
 
 export function getSageDir(): string {
   return SAGE_DIR;
