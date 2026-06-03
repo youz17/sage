@@ -25,6 +25,19 @@ function setApiKeyEnv(provider: string, apiKey: string): void {
   }
 }
 
+function findSessionByName(name: string) {
+  const sessions = SessionManager.list();
+  const match = sessions.find(s =>
+    s.id === name ||
+    s.id.startsWith(name) ||
+    (s.title && s.title.toLowerCase().includes(name.toLowerCase()))
+  );
+  if (match) {
+    return SessionManager.resume(match.id);
+  }
+  return null;
+}
+
 async function main() {
   const { createSageTUI } = await import("./tui/index.js");
 
@@ -35,16 +48,47 @@ async function main() {
   // Session setup
   const sessionManager = new SessionManager();
   const args = process.argv.slice(2);
-  const isNewSession = args.includes("--new");
+
+  const newIdx = args.indexOf("--new");
+  const resumeIdx = args.indexOf("--resume");
+  const isNew = newIdx !== -1;
+  const isResume = resumeIdx !== -1;
+  const newName = isNew ? args[newIdx + 1] : undefined;
+  const resumeName = isResume ? args[resumeIdx + 1] : undefined;
 
   let session = sessionManager.getCurrent();
-  if (!isNewSession) {
+
+  if (isResume) {
+    if (resumeName && !resumeName.startsWith("--")) {
+      const resumed = findSessionByName(resumeName);
+      if (resumed) {
+        const s = sessionManager.newSession(resumed.mode);
+        s.id = resumed.id;
+        s.title = resumed.title;
+        s.messages = resumed.messages;
+        session = s;
+      }
+    } else {
+      const sessions = SessionManager.list();
+      if (sessions.length > 0) {
+        const resumed = SessionManager.resume(sessions[0].id);
+        if (resumed) {
+          const s = sessionManager.newSession(resumed.mode);
+          s.id = resumed.id;
+          s.title = resumed.title;
+          s.messages = resumed.messages;
+          session = s;
+        }
+      }
+    }
+  } else if (!isNew) {
     const sessions = SessionManager.list();
     if (sessions.length > 0) {
       const resumed = SessionManager.resume(sessions[0].id);
       if (resumed) {
         const s = sessionManager.newSession(resumed.mode);
         s.id = resumed.id;
+        s.title = resumed.title;
         s.messages = resumed.messages;
         session = s;
       }
@@ -53,6 +97,9 @@ async function main() {
 
   if (!session) {
     session = sessionManager.newSession(config.defaultMode);
+    if (isNew && newName && !newName.startsWith("--")) {
+      session.title = newName;
+    }
   }
 
   // Agent setup
@@ -92,55 +139,54 @@ async function main() {
       currentMode = mode;
       sessionManager.setMode(mode);
       agent.state.systemPrompt = buildSystemPrompt(mode, activeSkills);
+      updateStatusBar();
     },
 
-    onSessionCommand(args: string) {
-      const parts = args.split(/\s+/);
-      const subCmd = parts[0];
-      const subArgs = parts.slice(1).join(" ");
+    onSessionNew(name?: string) {
+      sessionManager.saveCurrent();
+      const s = sessionManager.newSession(currentMode);
+      if (name) s.title = name;
+      agent.state.messages = [] as any;
+      updateStatusBar();
+    },
 
-      switch (subCmd) {
-        case "new": {
-          sessionManager.saveCurrent();
-          const s = sessionManager.newSession(currentMode);
-          agent.state.messages = [] as any;
-          break;
-        }
-        case "list": {
-          const sessions = SessionManager.list();
-          console.log("\nSessions:");
-          sessions.forEach((s, i) => {
-            console.log(`  ${i + 1}. [${s.id}] ${s.title} (${s.mode}) — ${s.updatedAt.slice(0, 10)}`);
-          });
-          break;
-        }
-        case "resume": {
-          const id = subArgs;
-          const resumed = SessionManager.resume(id);
-          if (!resumed) {
-            console.log(`Session "${id}" not found.`);
-            return;
-          }
-          sessionManager.saveCurrent();
-          const s = sessionManager.newSession(resumed.mode);
-          s.id = resumed.id;
-          s.messages = resumed.messages;
-          agent.state.messages = [...resumed.messages] as any;
-          currentMode = resumed.mode;
-          agent.state.systemPrompt = buildSystemPrompt(resumed.mode, activeSkills);
-          break;
-        }
-        case "delete": {
-          const id = subArgs;
-          if (SessionManager.delete(id)) {
-            console.log(`Session "${id}" deleted.`);
-          } else {
-            console.log(`Session "${id}" not found.`);
-          }
-          break;
-        }
-        default:
-          console.log(`Unknown session command: "${subCmd}". Use: new|list|resume|delete`);
+    onSessionList() {
+      const sessions = SessionManager.list();
+      console.log("\nSessions:");
+      sessions.forEach((s, i) => {
+        const displayTitle = s.title || s.id;
+        console.log(`  ${i + 1}. ${displayTitle} (${s.mode}) — ${s.updatedAt.slice(0, 10)}`);
+      });
+    },
+
+    onSessionResume(name: string) {
+      const resumed = findSessionByName(name);
+      if (!resumed) {
+        console.log(`Session "${name}" not found.`);
+        return;
+      }
+      sessionManager.saveCurrent();
+      const s = sessionManager.newSession(resumed.mode);
+      s.id = resumed.id;
+      s.title = resumed.title;
+      s.messages = resumed.messages;
+      agent.state.messages = [...resumed.messages] as any;
+      currentMode = resumed.mode;
+      agent.state.systemPrompt = buildSystemPrompt(resumed.mode, activeSkills);
+      updateStatusBar();
+    },
+
+    onSessionDelete(name: string) {
+      const sessions = SessionManager.list();
+      const match = sessions.find(s =>
+        s.id === name || s.id.startsWith(name) ||
+        (s.title && s.title.toLowerCase().includes(name.toLowerCase()))
+      );
+      const id = match?.id ?? name;
+      if (SessionManager.delete(id)) {
+        console.log(`Session "${name}" deleted.`);
+      } else {
+        console.log(`Session "${name}" not found.`);
       }
     },
 
@@ -153,13 +199,33 @@ async function main() {
         console.log(`Skill "${skill}" activated.`);
       }
       agent.state.systemPrompt = buildSystemPrompt(currentMode, activeSkills);
+      updateStatusBar();
     },
+  }, {
+    modes: () => getAllModeNames(),
+    sessions: () => SessionManager.list().map(s => s.title || s.id),
   });
+
+  function updateStatusBar() {
+    tui.updateStatus({
+      mode: currentMode,
+      thinkingLevel: "medium",
+      modelName: config.model.model,
+      skills: activeSkills,
+    });
+  }
+  updateStatusBar();
 
   // Wire agent events to TUI streaming
   agent.subscribe(async (event) => {
-    if (event.type === "message_update" && (event as any).assistantMessageEvent?.type === "text_delta") {
-      tui.onStreamDelta((event as any).assistantMessageEvent.delta);
+    if (event.type === "message_update") {
+      const ae = (event as any).assistantMessageEvent;
+      if (ae?.type === "text_delta") {
+        tui.onStreamDelta(ae.delta);
+      }
+      if (ae?.type === "thinking_delta") {
+        tui.onThinkingDelta(ae.delta);
+      }
     }
     if (event.type === "tool_execution_start") {
       tui.onToolCallStart(

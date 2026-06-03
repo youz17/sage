@@ -68,9 +68,6 @@ async function test() {
       console.log("\n\n--- DONE ---");
       console.log("Tokens used:", (event as any).usage || "N/A");
     }
-    if (event.type === "error") {
-      console.error("\nERROR:", (event as any).content || (event as any).error);
-    }
   });
 
   await agent.prompt(question);
