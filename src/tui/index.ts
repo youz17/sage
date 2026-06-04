@@ -87,8 +87,11 @@ class SageStatusBar implements Component {
   private _cachedWidth = -1;
   private _cachedLines: string[] = [];
 
-  update(mode: string, thinkingLevel: string, modelName: string, skills: string[]): void {
+  update(mode: string, thinkingLevel: string, modelName: string, skills: string[], sessionName?: string): void {
     const parts: string[] = [];
+    if (sessionName) {
+      parts.push(chalk.bold.cyan(sessionName));
+    }
     parts.push(chalk.bold(`Mode: ${mode}`));
     parts.push(`Think: ${thinkingLevel}`);
     parts.push(`Model: ${modelName}`);
@@ -125,6 +128,24 @@ class SageMessages extends Container {
   private _thinkingLabel: Text | null = null;
   private _thinkingContentText: Text | null = null;
   private _thinkingContent = "";
+
+  resetState(): void {
+    this._streamingMarkdown = null;
+    this._streamingContent = "";
+    this._thinkingLabel = null;
+    this._thinkingContentText = null;
+    this._thinkingContent = "";
+  }
+
+  clearMessages(): void {
+    this.clear();
+    this.resetState();
+  }
+
+  addSystemMessage(text: string): void {
+    this.addChild(new Spacer(1));
+    this.addChild(new Text(`  ${chalk.dim(text)}`));
+  }
 
   addUserMessage(text: string): void {
     this.addChild(new Spacer(1));
@@ -173,6 +194,11 @@ class SageMessages extends Container {
   addToolCall(name: string, _callId: string): void {
     this.addChild(new Text(`  ${chalk.dim("[tool]")} ${chalk.cyan(name)}`));
   }
+
+  addErrorMessage(text: string): void {
+    this.addChild(new Spacer(1));
+    this.addChild(new Text(`  ${chalk.red("[error]")} ${chalk.red(text)}`));
+  }
 }
 
 // --- TUI Factory ---
@@ -184,7 +210,10 @@ export interface SageTUI {
   onThinkingDelta: (delta: string) => void;
   onToolCallStart: (name: string, args: Record<string, unknown>, callId: string) => void;
   onToolCallEnd: (callId: string) => void;
-  updateStatus: (props: { mode: string; thinkingLevel: string; modelName: string; skills: string[] }) => void;
+  updateStatus: (props: { mode: string; thinkingLevel: string; modelName: string; skills: string[]; sessionName?: string }) => void;
+  addSystemMessage: (text: string) => void;
+  clearMessages: () => void;
+  addErrorMessage: (text: string) => void;
 }
 
 export interface SageTUIHandlers {
@@ -302,8 +331,20 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
       tui.requestRender();
     },
     onToolCallEnd(_callId: string) {},
-    updateStatus(props: { mode: string; thinkingLevel: string; modelName: string; skills: string[] }) {
-      statusBar.update(props.mode, props.thinkingLevel, props.modelName, props.skills);
+    updateStatus(props: { mode: string; thinkingLevel: string; modelName: string; skills: string[]; sessionName?: string }) {
+      statusBar.update(props.mode, props.thinkingLevel, props.modelName, props.skills, props.sessionName);
+    },
+    addSystemMessage(text: string) {
+      messages.addSystemMessage(text);
+      tui.requestRender();
+    },
+    clearMessages() {
+      messages.clearMessages();
+      tui.requestRender();
+    },
+    addErrorMessage(text: string) {
+      messages.addErrorMessage(text);
+      tui.requestRender();
     },
   };
 }

@@ -148,7 +148,7 @@ async function main() {
 
     onModeChange(mode: string) {
       if (!isValidMode(mode)) {
-        console.log(`Unknown mode: "${mode}". Available: ${getAllModeNames().join(", ")}`);
+        tui.addSystemMessage(`Unknown mode: "${mode}". Available: ${getAllModeNames().join(", ")}`);
         return;
       }
       currentMode = mode;
@@ -162,31 +162,60 @@ async function main() {
       sessionManager.saveCurrent();
       const s = sessionManager.newSession(currentMode);
       if (name) s.title = name;
+      session = s;
       logger.log("session:new", { id: s.id, title: name || "(auto)" });
+      tui.clearMessages();
       agent.state.messages = [] as any;
       updateStatusBar();
     },
 
     onSessionList() {
       const sessions = SessionManager.list();
-      console.log("\nSessions:");
-      sessions.forEach((s, i) => {
+      if (sessions.length === 0) {
+        tui.addSystemMessage("No saved sessions.");
+        return;
+      }
+      const lines = sessions.map((s, i) => {
         const displayTitle = s.title || s.id;
-        console.log(`  ${i + 1}. ${displayTitle} (${s.mode}) — ${s.updatedAt.slice(0, 10)}`);
+        return `  ${i + 1}. ${displayTitle} (${s.mode}) — ${s.updatedAt.slice(0, 10)}`;
       });
+      tui.addSystemMessage(`Sessions (${sessions.length}):\n${lines.join("\n")}`);
     },
 
     onSessionResume(name: string) {
       const resumed = findSessionByName(name);
       if (!resumed) {
-        console.log(`Session "${name}" not found.`);
+        tui.addSystemMessage(`Session "${name}" not found.`);
         return;
       }
       sessionManager.saveCurrent();
+
+      // Clear TUI and show resumed session history
+      tui.clearMessages();
+      tui.addSystemMessage(`Resumed: ${resumed.title || resumed.id}`);
+      tui.addSystemMessage(`Mode: ${resumed.mode} | Messages: ${resumed.messages.length} | ${resumed.createdAt.slice(0, 10)}`);
+
+      // Show partial history (first 6 messages)
+      const preview = resumed.messages.slice(0, 6);
+      for (const msg of preview) {
+        const roleLabel = msg.role === "user" ? "You" : msg.role === "assistant" ? "Sage" : msg.role;
+        const rawContent = (msg as any).content;
+        const content = typeof rawContent === "string"
+          ? rawContent
+          : Array.isArray(rawContent)
+            ? rawContent.map((c: any) => c.text || c.type || "").filter(Boolean).join(" ").slice(0, 80)
+            : "";
+        tui.addSystemMessage(`[${roleLabel}] ${content.slice(0, 80)}${content.length > 80 ? "..." : ""}`);
+      }
+      if (resumed.messages.length > 6) {
+        tui.addSystemMessage(`... and ${resumed.messages.length - 6} more messages`);
+      }
+
       const s = sessionManager.newSession(resumed.mode);
       s.id = resumed.id;
       s.title = resumed.title;
       s.messages = resumed.messages;
+      session = s;
       logger.log("session:resume", { id: s.id, title: s.title || s.id });
       agent.state.messages = [...resumed.messages] as any;
       currentMode = resumed.mode;
@@ -202,9 +231,9 @@ async function main() {
       );
       const id = match?.id ?? name;
       if (SessionManager.delete(id)) {
-        console.log(`Session "${name}" deleted.`);
+        tui.addSystemMessage(`Session "${name}" deleted.`);
       } else {
-        console.log(`Session "${name}" not found.`);
+        tui.addSystemMessage(`Session "${name}" not found.`);
       }
     },
 
@@ -212,11 +241,9 @@ async function main() {
       if (activeSkills.includes(skill)) {
         activeSkills = activeSkills.filter((s) => s !== skill);
         logger.log("skill:deactivate", { skill });
-        console.log(`Skill "${skill}" deactivated.`);
       } else {
         activeSkills.push(skill);
         logger.log("skill:activate", { skill });
-        console.log(`Skill "${skill}" activated.`);
       }
       agent.state.systemPrompt = buildSystemPrompt(currentMode, activeSkills);
       updateStatusBar();
@@ -232,6 +259,7 @@ async function main() {
       thinkingLevel: "high",
       modelName: config.model.model,
       skills: activeSkills,
+      sessionName: session?.title,
     });
   }
   updateStatusBar();
@@ -262,9 +290,22 @@ async function main() {
     if (event.type === "agent_end") {
       const fullResp = extractAssistantText(agent.state.messages);
       logger.log("agent:response", { text: fullResp });
+
+      const lastAssistant = [...agent.state.messages].reverse().find(
+        (m: any) => m.role === "assistant",
+      ) as any;
+      if (lastAssistant?.stopReason === "error" || lastAssistant?.stopReason === "aborted") {
+        const errMsg = lastAssistant?.errorMessage || `Agent ${lastAssistant.stopReason}`;
+        logger.log("agent:error", { stopReason: lastAssistant.stopReason, error: errMsg });
+        tui.addErrorMessage(errMsg);
+      } else if (!fullResp && agent.state.messages.length > 0) {
+        logger.log("agent:empty_response", { messageCount: agent.state.messages.length });
+      }
+
       sessionManager.updateMessages(agent.state.messages as any[]);
       sessionManager.saveCurrent();
-      logger.log("session:save", { id: session.id });
+      updateStatusBar();
+      logger.log("session:save", { id: session!.id });
     }
   });
 
