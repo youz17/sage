@@ -123,6 +123,7 @@ class SageMessages extends Container {
   private _streamingMarkdown: Markdown | null = null;
   private _streamingContent = "";
   private _thinkingLabel: Text | null = null;
+  private _thinkingContentText: Text | null = null;
   private _thinkingContent = "";
 
   addUserMessage(text: string): void {
@@ -138,6 +139,7 @@ class SageMessages extends Container {
     this._streamingContent = "";
     this._thinkingContent = "";
     this._thinkingLabel = null;
+    this._thinkingContentText = null;
   }
 
   appendDelta(delta: string): void {
@@ -151,8 +153,11 @@ class SageMessages extends Container {
     if (!this._thinkingLabel) {
       this._thinkingLabel = new Text(`  ${chalk.gray.italic("[thinking]")}`);
       this.addChild(this._thinkingLabel);
+      this._thinkingContentText = new Text("", 4, 0);
+      this.addChild(this._thinkingContentText);
     }
     this._thinkingContent += delta;
+    this._thinkingContentText!.setText(chalk.gray.italic(this._thinkingContent));
   }
 
   finishAssistantMessage(): void {
@@ -160,6 +165,7 @@ class SageMessages extends Container {
     this._streamingContent = "";
     if (this._thinkingLabel) {
       this._thinkingLabel = null;
+      this._thinkingContentText = null;
       this._thinkingContent = "";
     }
   }
@@ -285,12 +291,15 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
     },
     onStreamDelta(delta: string) {
       messages.appendDelta(delta);
+      tui.requestRender();
     },
     onThinkingDelta(delta: string) {
       messages.appendThinking(delta);
+      tui.requestRender();
     },
     onToolCallStart(name: string, _args: Record<string, unknown>, callId: string) {
       messages.addToolCall(name, callId);
+      tui.requestRender();
     },
     onToolCallEnd(_callId: string) {},
     updateStatus(props: { mode: string; thinkingLevel: string; modelName: string; skills: string[] }) {
