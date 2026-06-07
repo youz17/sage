@@ -98,8 +98,7 @@ export class SessionManager {
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
 
-  // TODO: 命名有点奇怪，实际是获取session信息，没有执行 resume 操作
-  static resume(sessionId: string): Session | null {
+  static load(sessionId: string): Session | null {
     const filePath = sessionPath(sessionId);
     if (!fs.existsSync(filePath)) return null;
     try {
@@ -112,6 +111,20 @@ export class SessionManager {
     } catch {
       return null;
     }
+  }
+
+  static findByName(name: string): Session | null {
+    const sessions = SessionManager.list();
+    const match = sessions.find(
+      (s) =>
+        s.id === name ||
+        s.id.startsWith(name) ||
+        (s.name && s.name.toLowerCase().includes(name.toLowerCase())),
+    );
+    if (match) {
+      return SessionManager.load(match.id);
+    }
+    return null;
   }
 
   static delete(sessionId: string): boolean {

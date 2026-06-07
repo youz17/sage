@@ -49,26 +49,13 @@ function setApiKeyEnv(provider: string, apiKey: string): void {
 }
 
 function extractAssistantText(messages: AgentMessage[]): string {
-    // TODO: 直接反向for循环效率更高
-  const last = [...messages].reverse().find((m) => m.role === "assistant");
-  if (!last) return "";
-  if (typeof last.content === "string") return last.content;
-  return JSON.stringify(last.content).slice(0, 1000);
-}
-
-function findSessionByName(name: string): Session | null {
-    // TODO: 这种函数应该是 Session Manager 中
-  const sessions = SessionManager.list();
-  const match = sessions.find(
-    (s) =>
-      s.id === name ||
-      s.id.startsWith(name) ||
-      (s.name && s.name.toLowerCase().includes(name.toLowerCase())),
-  );
-  if (match) {
-    return SessionManager.resume(match.id);
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "assistant") continue;
+    if (typeof m.content === "string") return m.content;
+    return JSON.stringify(m.content).slice(0, 1000);
   }
-  return null;
+  return "";
 }
 
 // ---- CLI args ----
@@ -147,7 +134,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
     },
 
     onSessionResume(name: string) {
-      const resumed = findSessionByName(name);
+      const resumed = SessionManager.findByName(name);
       if (!resumed) {
         ctx.tui.addSystemMessage(`Session "${name}" not found.`);
         return;
@@ -241,7 +228,7 @@ function initSession(
 
   if (isResume) {
     if (resumeName && !resumeName.startsWith("--")) {
-      const resumed = findSessionByName(resumeName);
+      const resumed = SessionManager.findByName(resumeName);
       if (resumed) {
         const s = sessionManager.newSession(resumed.mode);
         s.id = resumed.id;
@@ -252,7 +239,7 @@ function initSession(
     } else {
       const sessions = SessionManager.list();
       if (sessions.length > 0) {
-        const resumed = SessionManager.resume(sessions[0].id);
+        const resumed = SessionManager.load(sessions[0].id);
         if (resumed) {
           const s = sessionManager.newSession(resumed.mode);
           s.id = resumed.id;
@@ -265,7 +252,7 @@ function initSession(
   } else if (!isNew) {
     const sessions = SessionManager.list();
     if (sessions.length > 0) {
-      const resumed = SessionManager.resume(sessions[0].id);
+      const resumed = SessionManager.load(sessions[0].id);
       if (resumed) {
         const s = sessionManager.newSession(resumed.mode);
         s.id = resumed.id;
