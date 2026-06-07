@@ -44,7 +44,6 @@ async function test() {
   console.log(`\nCreating agent...`);
   const agent = createSageAgent(model, {
     mode: "direct",
-    skillNames: [],
     tavilyApiKey: config.tavilyApiKey,
   });
 

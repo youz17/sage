@@ -75,10 +75,6 @@ function buildCommands(
     },
     { name: "quit", description: "Exit Sage" },
     { name: "exit", description: "Exit Sage" },
-    // skills
-    { name: "reflect", description: "Activate reflect skill" },
-    { name: "challenge", description: "Activate challenge skill" },
-    { name: "goal", description: "Activate goal skill" },
     // TODO: custom skills
   ];
 }
@@ -293,7 +289,7 @@ export interface SageTUIHandlers {
   onSessionList: () => void;
   onSessionResume: (name: string) => void;
   onSessionDelete: (name: string) => void;
-  onSkillActivate: (skill: string) => void;
+  onSkill: (name: string, userText?: string) => void;
   onSessionRename: (name: string) => void;
 }
 
@@ -356,11 +352,6 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
           return;
         case "session-delete":
           handlers.onSessionDelete(args);
-          return;
-        case "reflect":
-        case "challenge":
-        case "goal":
-          handlers.onSkillActivate(cmd);
           return;
         case "session-rename":
           handlers.onSessionRename(args);

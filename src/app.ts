@@ -9,6 +9,7 @@ import { SessionManager, Session } from "./session/manager.js";
 import { getAllModeNames, isValidMode } from "./core/modes.js";
 import { Logger } from "./log/logger.js";
 import { buildSystemPrompt } from "./core/prompts.js";
+import { loadSkill } from "./skills/loader.js";
 import type { SageTUI, SageTUIHandlers } from "./tui/index.js";
 
 // ---- types ----
@@ -20,7 +21,6 @@ interface AppContext {
   config: SageConfig;
   session: Session | null;
   currentMode: string;
-  activeSkills: string[];
   tui: SageTUI;
   updateStatusBar(): void;
 }
@@ -107,7 +107,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       ctx.currentMode = mode;
       Logger.info("mode:change", { sessionId: sid, mode });
       ctx.sessionManager.setMode(mode);
-      ctx.agent.state.systemPrompt = buildSystemPrompt(mode, ctx.activeSkills);
+      ctx.agent.state.systemPrompt = buildSystemPrompt(mode);
       ctx.updateStatusBar();
     },
 
@@ -155,7 +155,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       Logger.info("session:resume", { sessionId: sid, name: s.name });
       ctx.agent.state.messages = [...resumed.messages];
       ctx.currentMode = resumed.mode;
-      ctx.agent.state.systemPrompt = buildSystemPrompt(resumed.mode, ctx.activeSkills);
+      ctx.agent.state.systemPrompt = buildSystemPrompt(resumed.mode);
       ctx.updateStatusBar();
     },
 
@@ -194,16 +194,20 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       ctx.updateStatusBar();
     },
 
-    onSkillActivate(skill: string) {
-      if (ctx.activeSkills.includes(skill)) {
-        ctx.activeSkills = ctx.activeSkills.filter((s) => s !== skill);
-        Logger.info("skill:deactivate", { sessionId: sid, skill });
-      } else {
-        ctx.activeSkills.push(skill);
-        Logger.info("skill:activate", { sessionId: sid, skill });
+    onSkill(name: string, userText?: string) {
+      const skill = loadSkill(name);
+      if (!skill) {
+        ctx.tui.addSystemMessage(`Skill "${name}" not found.`);
+        return;
       }
-      ctx.agent.state.systemPrompt = buildSystemPrompt(ctx.currentMode, ctx.activeSkills);
-      ctx.updateStatusBar();
+      const prompt = userText
+        ? `${skill.prompt}\n\n${userText}`
+        : skill.prompt;
+      Logger.info("skill:trigger", { sessionId: ctx.session!.id, skill: name });
+      ctx.agent.prompt(prompt).catch((err: Error) => {
+        Logger.error("error", { sessionId: ctx.session!.id, message: err.message, stack: err.stack });
+        console.error("Agent error:", err);
+      });
     },
   };
 }
@@ -213,7 +217,6 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
 interface InitSessionResult {
   session: Session;
   agent: Agent;
-  activeSkills: string[];
   currentMode: string;
 }
 
@@ -272,12 +275,10 @@ function initSession(
 
   Logger.info("session:init", { sessionId: session.id, mode: session.mode, model: config.model.model });
 
-  const activeSkills: string[] = [];
   const currentMode = session.mode;
 
   const agent = createSageAgent(model, {
     mode: currentMode,
-    skillNames: activeSkills,
     tavilyApiKey: config.tavilyApiKey,
     sessionId: session.id,
   });
@@ -286,7 +287,7 @@ function initSession(
     agent.state.messages = [...session.messages];
   }
 
-  return { session, agent, activeSkills, currentMode };
+  return { session, agent, currentMode };
 }
 
 // ---- agent events ----
@@ -386,7 +387,7 @@ async function main(): Promise<void> {
 
   // Session setup
   const sessionManager = new SessionManager();
-  const { session, agent, activeSkills, currentMode } = initSession(
+  const { session, agent, currentMode } = initSession(
     sessionManager,
     parseArgs(process.argv.slice(2)),
     config,
@@ -401,7 +402,6 @@ async function main(): Promise<void> {
     config,
     session,
     currentMode,
-    activeSkills,
   } as AppContext;
 
   function updateStatusBar() {

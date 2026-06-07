@@ -3,25 +3,28 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { SageModelConfig } from "../config/types.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { buildSystemPrompt } from "../core/prompts.js";
-import { createWebSearchTool, createReflectTool, createChallengeTool } from "./tools.js";
+import { createWebSearchTool } from "./tools.js";
+import { getAutoSkills, buildAutoSkillPrompt, buildUseSkillTool } from "../skills/loader.js";
 import { compactMemory } from "./memory.js";
 
 export function createSageAgent(
   model: Model<any>,
   options: {
     mode?: string;
-    skillNames?: string[];
     tavilyApiKey?: string;
     sessionId?: string;
   } = {},
 ) {
-  const { mode = "default", skillNames = [], tavilyApiKey, sessionId } = options;
+  const { mode = "default", tavilyApiKey, sessionId } = options;
 
-  // TODO: 这两个到底是否应该是tool
-  const tools: AgentTool[] = [
-    createReflectTool(),
-    createChallengeTool(),
-  ];
+  const autoSkills = getAutoSkills();
+  const autoSkillPrompt = buildAutoSkillPrompt(autoSkills);
+
+  const tools: AgentTool[] = [];
+
+  if (autoSkills.length > 0) {
+    tools.push(buildUseSkillTool(autoSkills) as unknown as AgentTool);
+  }
 
   if (tavilyApiKey) {
     tools.push(createWebSearchTool(tavilyApiKey));
@@ -29,7 +32,7 @@ export function createSageAgent(
 
   const agent = new Agent({
     initialState: {
-      systemPrompt: buildSystemPrompt(mode, skillNames),
+      systemPrompt: buildSystemPrompt(mode, autoSkillPrompt),
       model,
       thinkingLevel: "high",
       tools,
