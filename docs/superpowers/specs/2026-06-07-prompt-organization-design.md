@@ -77,12 +77,26 @@ You are Sage, an AI assistant.
 
 **write-mode** 增加：
 ```
-你写的 mode 内容会被直接插入 system prompt 的 "You are Sage, an AI assistant." 之后。请在 body 开头包含自描述语句，说明当前是什么模式及其作用。
+你写的 mode 文件 body 最终会在 system prompt 中呈现为：
+
+---
+You are Sage, an AI assistant.
+
+[你的 body 内容]
+---
+
+请在 body 开头包含自描述语句，例如：
+"当前处于「XX」模式。此模式决定了我的沟通风格和领域知识。具体行为如下："
 ```
 
 **write-rule** 增加：
 ```
-你写的 rule 内容会被插入 system prompt 的 "## Rules" 标题下方。标题本身已提供上下文，rule 正文无需额外的自描述语句，直接写约束内容即可。
+你写的 rule 文件 body 最终会在 system prompt 中呈现为：
+
+## Rules
+[你的 body 内容]
+
+标题 "## Rules" 已提供上下文，body 直接写约束内容即可。
 ```
 
 **write-skill** 增加：
