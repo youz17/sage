@@ -137,6 +137,7 @@ function getMessageText(msg: AgentMessage): string {
 class SageMessages extends Container {
   private _streamingMarkdown: Markdown | null = null;
   private _streamingContent = "";
+  private _bufferedText = "";
   private _thinkingContainer: Container | null = null;
   private _currentThinkingBlock: { label: Text; text: Text; fullText: string } | null = null;
   private _thinkingBlocks: { label: Text; text: Text; fullText: string }[] = [];
@@ -145,6 +146,7 @@ class SageMessages extends Container {
   resetState(): void {
     this._streamingMarkdown = null;
     this._streamingContent = "";
+    this._bufferedText = "";
     this._thinkingContainer = null;
     this._currentThinkingBlock = null;
   }
@@ -172,9 +174,17 @@ class SageMessages extends Container {
     this._thinkingContainer = new Container();
     this.addChild(this._thinkingContainer);
     this._currentThinkingBlock = null;
-    this._streamingMarkdown = new Markdown("", 2, 0, sageMarkdownTheme);
-    this.addChild(this._streamingMarkdown);
     this._streamingContent = "";
+    this._bufferedText = "";
+  }
+
+  /** Ensure Markdown component exists, creating it with any buffered text if not. */
+  private _ensureMarkdown(): void {
+    if (this._streamingMarkdown) return;
+    this._streamingMarkdown = new Markdown(this._bufferedText, 2, 0, sageMarkdownTheme);
+    this.addChild(this._streamingMarkdown);
+    this._streamingContent = this._bufferedText;
+    this._bufferedText = "";
   }
 
   startThinking(): void {
@@ -198,6 +208,8 @@ class SageMessages extends Container {
     if (this._streamingMarkdown) {
       this._streamingContent += delta;
       this._streamingMarkdown.setText(this._streamingContent);
+    } else {
+      this._bufferedText += delta;
     }
   }
 
@@ -210,14 +222,23 @@ class SageMessages extends Container {
   }
 
   finishAssistantMessage(): void {
+    this._ensureMarkdown();
     this._streamingMarkdown = null;
     this._streamingContent = "";
+    this._bufferedText = "";
     this._thinkingContainer = null;
     this._currentThinkingBlock = null;
   }
 
   addToolCall(name: string, _callId: string): void {
-    this.addChild(new Text(`  ${chalk.dim("[tool]")} ${chalk.cyan(name)}`));
+    this._ensureMarkdown();
+    const toolText = new Text(`  ${chalk.dim("[tool]")} ${chalk.cyan(name)}`);
+    const idx = this.children.indexOf(this._streamingMarkdown!);
+    if (idx !== -1) {
+      this.children.splice(idx, 0, toolText);
+    } else {
+      this.addChild(toolText);
+    }
   }
 
   toggleThinking(): void {
