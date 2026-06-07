@@ -34,6 +34,7 @@ function sanitize(obj: unknown): unknown {
 }
 
 // TODO: log用对象的形式暴露接口往往有点过度设计
+// TODO: log需要简单区分级别
 export class Logger {
   private stream: fs.WriteStream;
 
@@ -49,6 +50,16 @@ export class Logger {
       ...(sanitize(detail) as Record<string, unknown>),
     };
     this.stream.write(JSON.stringify(entry) + "\n");
+  }
+
+  info(key: string, data?: Record<string, unknown>): void {
+    this.log(`info:${key}`, data ?? {});
+  }
+  warn(key: string, data?: Record<string, unknown>): void {
+    this.log(`warn:${key}`, data ?? {});
+  }
+  error(key: string, data?: Record<string, unknown>): void {
+    this.log(`error:${key}`, data ?? {});
   }
 
   close(): void {

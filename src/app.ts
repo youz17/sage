@@ -83,9 +83,9 @@ function parseArgs(args: string[]): ParsedArgs {
 function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
   return {
     onInput(text: string) {
-      ctx.logger.log("agent:prompt", { text });
+      ctx.logger.info("agent:prompt", { text });
       ctx.agent.prompt(text).catch((err: Error) => {
-        ctx.logger.log("error", { message: err.message, stack: err.stack });
+        ctx.logger.error("error", { message: err.message, stack: err.stack });
         console.error("Agent error:", err);
       });
     },
@@ -104,7 +104,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
         return;
       }
       ctx.currentMode = mode;
-      ctx.logger.log("mode:change", { mode });
+      ctx.logger.info("mode:change", { mode });
       ctx.sessionManager.setMode(mode);
       ctx.agent.state.systemPrompt = buildSystemPrompt(mode, ctx.activeSkills);
       ctx.updateStatusBar();
@@ -115,7 +115,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       const s = ctx.sessionManager.newSession(ctx.currentMode);
       if (name) s.name = name;
       ctx.session = s;
-      ctx.logger.log("session:new", { id: s.id, name });
+      ctx.logger.info("session:new", { id: s.id, name });
       ctx.tui.clearMessages();
       ctx.agent.state.messages = [];
       ctx.updateStatusBar();
@@ -151,7 +151,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       s.name = resumed.name;
       s.messages = resumed.messages;
       ctx.session = s;
-      ctx.logger.log("session:resume", { id: s.id, name: s.name });
+      ctx.logger.info("session:resume", { id: s.id, name: s.name });
       ctx.agent.state.messages = [...resumed.messages];
       ctx.currentMode = resumed.mode;
       ctx.agent.state.systemPrompt = buildSystemPrompt(resumed.mode, ctx.activeSkills);
@@ -188,7 +188,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
         ctx.tui.addSystemMessage(`Session "${name}" already exists.`);
         return;
       }
-      ctx.logger.log("session:rename", { id: ctx.session.id, name });
+      ctx.logger.info("session:rename", { id: ctx.session.id, name });
       ctx.tui.addSystemMessage(`Session renamed to "${name}".`);
       ctx.updateStatusBar();
     },
@@ -196,10 +196,10 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
     onSkillActivate(skill: string) {
       if (ctx.activeSkills.includes(skill)) {
         ctx.activeSkills = ctx.activeSkills.filter((s) => s !== skill);
-        ctx.logger.log("skill:deactivate", { skill });
+        ctx.logger.info("skill:deactivate", { skill });
       } else {
         ctx.activeSkills.push(skill);
-        ctx.logger.log("skill:activate", { skill });
+        ctx.logger.info("skill:activate", { skill });
       }
       ctx.agent.state.systemPrompt = buildSystemPrompt(ctx.currentMode, ctx.activeSkills);
       ctx.updateStatusBar();
@@ -271,7 +271,7 @@ function initSession(
   }
 
   const logger = new Logger(session.id);
-  logger.log("session:init", { id: session.id, mode: session.mode, model: config.model.model });
+  logger.info("session:init", { id: session.id, mode: session.mode, model: config.model.model });
 
   const activeSkills: string[] = [];// TODO: 需要active skill的概念吗？虽然可以考虑在 mode 上抽一层，但暂时应该不需要
   const currentMode = session.mode;
@@ -325,7 +325,7 @@ function wireAgentEvents(
     }
     if (event.type === "agent_end") {
       const fullResp = extractAssistantText(agent.state.messages);
-      logger.log("agent:response", { text: fullResp });
+      logger.info("agent:response", { text: fullResp });
 
       const lastAssistant = [...agent.state.messages]
         .reverse()
@@ -339,19 +339,19 @@ function wireAgentEvents(
           "errorMessage" in lastAssistant
             ? (lastAssistant as { errorMessage?: string }).errorMessage
             : undefined;
-        logger.log("agent:error", {
+        logger.error("agent:error", {
           stopReason: lastAssistant.stopReason,
           error: errMsg || `Agent ${lastAssistant.stopReason}`,
         });
         tui.addErrorMessage(errMsg || `Agent ${lastAssistant.stopReason}`);
       } else if (!fullResp && agent.state.messages.length > 0) {
-        logger.log("agent:empty_response", { messageCount: agent.state.messages.length });
+        logger.warn("agent:empty_response", { messageCount: agent.state.messages.length });
       }
 
       sessionManager.updateMessages(agent.state.messages);
       sessionManager.saveCurrent();
       updateStatusBar();
-      logger.log("session:save", { id: ctx.session!.id });
+      logger.info("session:save", { id: ctx.session!.id });
     }
   });
 }
