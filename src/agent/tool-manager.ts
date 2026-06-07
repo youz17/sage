@@ -45,7 +45,7 @@ function buildSkillTool(toolDef: ToolDef, skillDir: string): AgentTool {
     description: toolDef.description,
     parameters: paramsSchema,
     execute: async (_toolCallId, params, signal) => {
-      let cmd = toolDef.command.replaceAll("{{skillDir}}", skillDir);
+      let cmd = toolDef.command.replaceAll("{{skillDir}}", escapeShell(skillDir));
       for (const [key, value] of Object.entries(params as Record<string, string | undefined>)) {
         const needle = `{{${key}}}`;
         if (!cmd.includes(needle)) continue;
