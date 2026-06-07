@@ -141,21 +141,23 @@ function getMessageText(msg: AgentMessage): string {
 class SageMessages extends Container {
   private _streamingMarkdown: Markdown | null = null;
   private _streamingContent = "";
-  private _thinkingLabel: Text | null = null;
-  private _thinkingContentText: Text | null = null;
-  private _thinkingContent = "";
+  private _thinkingContainer: Container | null = null;
+  private _currentThinkingBlock: { label: Text; text: Text; fullText: string } | null = null;
+  private _thinkingBlocks: { label: Text; text: Text; fullText: string }[] = [];
+  private _thinkingExpanded = true;
 
   resetState(): void {
     this._streamingMarkdown = null;
     this._streamingContent = "";
-    this._thinkingLabel = null;
-    this._thinkingContentText = null;
-    this._thinkingContent = "";
+    this._thinkingContainer = null;
+    this._currentThinkingBlock = null;
   }
 
   clearMessages(): void {
     this.clear();
     this.resetState();
+    this._thinkingBlocks = [];
+    this._thinkingExpanded = true;
   }
 
   addSystemMessage(text: string): void {
@@ -171,12 +173,29 @@ class SageMessages extends Container {
   startAssistantMessage(): void {
     this.addChild(new Spacer(1));
     this.addChild(new Text(`  ${chalk.bold.blue("Sage:")}`));
+    this._thinkingContainer = new Container();
+    this.addChild(this._thinkingContainer);
+    this._currentThinkingBlock = null;
     this._streamingMarkdown = new Markdown("", 2, 0, sageMarkdownTheme);
     this.addChild(this._streamingMarkdown);
     this._streamingContent = "";
-    this._thinkingContent = "";
-    this._thinkingLabel = null;
-    this._thinkingContentText = null;
+  }
+
+  startThinking(): void {
+    if (!this._thinkingContainer) return;
+    const block = {
+      label: new Text(`  ${chalk.gray.italic("[thinking]")}`),
+      text: new Text("", 4, 0),
+      fullText: "",
+    };
+    this._thinkingContainer.addChild(block.label);
+    this._thinkingContainer.addChild(block.text);
+    this._currentThinkingBlock = block;
+    this._thinkingBlocks.push(block);
+  }
+
+  endThinking(): void {
+    this._currentThinkingBlock = null;
   }
 
   appendDelta(delta: string): void {
@@ -187,28 +206,33 @@ class SageMessages extends Container {
   }
 
   appendThinking(delta: string): void {
-    if (!this._thinkingLabel) {
-      this._thinkingLabel = new Text(`  ${chalk.gray.italic("[thinking]")}`);
-      this.addChild(this._thinkingLabel);
-      this._thinkingContentText = new Text("", 4, 0);
-      this.addChild(this._thinkingContentText);
+    if (!this._currentThinkingBlock) return;
+    this._currentThinkingBlock.fullText += delta;
+    if (this._thinkingExpanded) {
+      this._currentThinkingBlock.text.setText(chalk.gray.italic(this._currentThinkingBlock.fullText));
     }
-    this._thinkingContent += delta;
-    this._thinkingContentText!.setText(chalk.gray.italic(this._thinkingContent));
   }
 
   finishAssistantMessage(): void {
     this._streamingMarkdown = null;
     this._streamingContent = "";
-    if (this._thinkingLabel) {
-      this._thinkingLabel = null;
-      this._thinkingContentText = null;
-      this._thinkingContent = "";
-    }
+    this._thinkingContainer = null;
+    this._currentThinkingBlock = null;
   }
 
   addToolCall(name: string, _callId: string): void {
     this.addChild(new Text(`  ${chalk.dim("[tool]")} ${chalk.cyan(name)}`));
+  }
+
+  toggleThinking(): void {
+    this._thinkingExpanded = !this._thinkingExpanded;
+    for (const block of this._thinkingBlocks) {
+      if (this._thinkingExpanded) {
+        block.text.setText(chalk.gray.italic(block.fullText));
+      } else {
+        block.text.setText("");
+      }
+    }
   }
 
   addAssistantMessage(text: string): void {
@@ -256,6 +280,7 @@ export interface SageTUI {
   clearMessages: () => void;
   restoreMessages: (messages: AgentMessage[]) => void;
   addErrorMessage: (text: string) => void;
+  toggleThinking: () => void;
 }
 
 export interface SageTUIHandlers {
@@ -355,6 +380,10 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
       tui.stop();
       process.exit(0);
     }
+    if (matchesKey(data, Key.ctrl("t"))) {
+      messages.toggleThinking();
+      tui.requestRender();
+    }
     return undefined;
   });
 
@@ -391,6 +420,10 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
     },
     restoreMessages(msgs: AgentMessage[]) {
       messages.restoreMessages(msgs);
+      tui.requestRender();
+    },
+    toggleThinking() {
+      messages.toggleThinking();
       tui.requestRender();
     },
     addErrorMessage(text: string) {
