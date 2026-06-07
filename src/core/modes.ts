@@ -1,7 +1,9 @@
-import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync, existsSync } from "node:fs";
+import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getSubdir, scanMdFiles } from "../config/loader.js";
+import yaml from "js-yaml";
+import { walkDir } from "./file-loader.js";
+import { getSubdir } from "../config/loader.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -11,16 +13,12 @@ export interface Mode {
   prompt: string;
 }
 
-// TODO: 通用能力, 考虑抽取
 function parseFrontmatter(content: string): { description: string; body: string } | null {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!match) return null;
 
-  const frontmatter: Record<string, string> = {};
-  for (const line of match[1].split("\n")) {
-    const kv = line.match(/^(\w+):\s*(.+)$/);
-    if (kv) frontmatter[kv[1].trim()] = kv[2].trim();
-  }
+  const frontmatter = yaml.load(match[1]) as Record<string, string> | undefined;
+  if (!frontmatter) return null;
 
   return {
     description: frontmatter.description ?? "",
@@ -28,8 +26,6 @@ function parseFrontmatter(content: string): { description: string; body: string 
   };
 }
 
-// TODO: 这种路径没有更合理的处理吗？
-// 至少抽出一个统一的 dir 管理 util
 function findBuiltinDir(): string | null {
   const tsxPath = join(__dirname, "builtin");
   if (existsSync(tsxPath)) return tsxPath;
@@ -44,8 +40,9 @@ function scanModes(dir: string | null): Map<string, Mode> {
   const modes = new Map<string, Mode>();
   if (!dir) return modes;
 
-  const raw = scanMdFiles(dir);
-  for (const [name, content] of raw) {
+  for (const file of walkDir(dir, ".md")) {
+    const name = basename(file, ".md");
+    const content = readFileSync(file, "utf-8");
     const parsed = parseFrontmatter(content);
     if (parsed) {
       modes.set(name, {

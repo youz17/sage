@@ -1,7 +1,9 @@
-import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync, existsSync } from "node:fs";
+import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getSubdir, scanMdFiles } from "../config/loader.js";
+import yaml from "js-yaml";
+import { walkDir } from "../core/file-loader.js";
+import { getSubdir } from "../config/loader.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -21,11 +23,8 @@ function parseFrontmatter(content: string): { frontmatter: SkillFrontmatter; bod
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!match) return null;
 
-  const frontmatter: Record<string, string> = {};
-  for (const line of match[1].split("\n")) {
-    const kv = line.match(/^(\w+):\s*(.+)$/);
-    if (kv) frontmatter[kv[1].trim()] = kv[2].trim();
-  }
+  const frontmatter = yaml.load(match[1]) as Record<string, string> | undefined;
+  if (!frontmatter) return null;
 
   return {
     frontmatter: {
@@ -36,6 +35,7 @@ function parseFrontmatter(content: string): { frontmatter: SkillFrontmatter; bod
   };
 }
 
+// TODO: 和mode相同问题
 function findBuiltinDir(): string | null {
   // tsx (dev): __dirname = src/skills/ -> builtin/ = src/skills/builtin/
   const tsxPath = join(__dirname, "builtin");
@@ -54,10 +54,9 @@ function scanBuiltinSkills(): Map<string, Skill> {
   const builtinDir = findBuiltinDir();
   if (!builtinDir) return skills;
 
-  for (const file of readdirSync(builtinDir)) {
-    if (!file.endsWith(".md")) continue;
-    const name = file.slice(0, -3);
-    const raw = readFileSync(join(builtinDir, file), "utf-8");
+  for (const file of walkDir(builtinDir, ".md")) {
+    const name = basename(file, ".md");
+    const raw = readFileSync(file, "utf-8");
     const parsed = parseFrontmatter(raw);
     if (parsed) {
       skills.set(name, {
@@ -74,8 +73,9 @@ function scanBuiltinSkills(): Map<string, Skill> {
 function scanCustomSkills(): Map<string, Skill> {
   const skills = new Map<string, Skill>();
   const customDir = getSubdir("skills");
-  const raw = scanMdFiles(customDir);
-  for (const [name, content] of raw) {
+  for (const file of walkDir(customDir, ".md")) {
+    const name = basename(file, ".md");
+    const content = readFileSync(file, "utf-8");
     const parsed = parseFrontmatter(content);
     if (parsed) {
       skills.set(name, {
@@ -134,7 +134,7 @@ export function loadSkill(name: string): Skill | null {
   return all.get(name) ?? null;
 }
 
-// TODO 调整 skill 组织方式
+// TODO: 调整 skill 组织方式
 export function buildSkillPrompt(skillNames: string[]): string {
   const parts: string[] = [];
   for (const name of skillNames) {
