@@ -6,6 +6,9 @@ import { buildSystemPrompt } from "../core/prompts.js";
 import { createWebSearchTool, createWebFetchTool } from "./tools.js";
 import { getAutoSkills, buildAutoSkillPrompt, buildUseSkillTool } from "../skills/loader.js";
 import { compactMemory } from "./memory.js";
+import { ToolManager } from "./tool-manager.js";
+import { getSageDir } from "../config/loader.js";
+import { join } from "node:path";
 
 export function createSageAgent(
   model: Model<any>,
@@ -14,16 +17,19 @@ export function createSageAgent(
     tavilyApiKey?: string;
     sessionId?: string;
   } = {},
-) {
+): { agent: Agent; toolManager: ToolManager } {
   const { mode = "default", tavilyApiKey, sessionId } = options;
 
   const autoSkills = getAutoSkills();
   const autoSkillPrompt = buildAutoSkillPrompt(autoSkills);
 
+  const skillsDir = join(getSageDir(), "skills");
+  const toolManager = new ToolManager([], skillsDir);
+
   const tools: AgentTool[] = [];
 
   if (autoSkills.length > 0) {
-    tools.push(buildUseSkillTool(autoSkills));
+    tools.push(buildUseSkillTool(autoSkills, toolManager));
   }
 
   tools.push(createWebFetchTool());
@@ -57,5 +63,7 @@ export function createSageAgent(
     followUpMode: "one-at-a-time",
   });
 
-  return agent;
+  toolManager.setAgent(agent);
+
+  return { agent, toolManager };
 }
