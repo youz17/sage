@@ -10,6 +10,7 @@ import { createWebFetchTool, htmlToMarkdown } from "./agent/tools.js";
 import { buildAutoSkillPrompt, buildSkillActivation, buildManualSkillPrompt } from "./skills/loader.js";
 import type { Skill } from "./skills/loader.js";
 import { escapeShell, ToolManager } from "./agent/tool-manager.js";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -183,7 +184,7 @@ function testToolManagerActivateIdempotent() {
         parameters: {
           msg: { type: "string", required: true, description: "message" }
         },
-        command: "node -e \"process.stdout.write('{{msg}}')\""
+      command: "node -e \"process.stdout.write(process.argv[1])\" {{msg}}"
       }
     ]
   }));
@@ -281,6 +282,56 @@ function testToolManagerSyncToAgent() {
   rmSync(tmpDir, { recursive: true, force: true });
 }
 
+async function testSkillToolIntegration() {
+  const tmpDir = join(tmpdir(), "sage-int-" + Math.random().toString(36).slice(2));
+  const skillDir = join(tmpDir, "echo-skill");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "skill.md"), "---\ntype: auto\ndescription: Echo skill for testing\n---\n");
+  writeFileSync(join(skillDir, "tools.json"), JSON.stringify({
+    tools: [{
+      name: "echo",
+      label: "Echo",
+      description: "Returns the input message verbatim",
+      parameters: {
+        msg: { type: "string", required: true, description: "The message to echo" }
+      },
+      command: "node -e \"process.stdout.write(process.argv[1])\" {{msg}}"
+    }]
+  }));
+
+  const baseTools: AgentTool[] = [];
+  const mgr = new ToolManager(baseTools, tmpDir);
+
+  const scanCount = mgr.getToolCount("echo-skill");
+  if (scanCount !== 1) {
+    console.log("❌ testSkillToolIntegration FAILED: scan found", scanCount, "tools, expected 1");
+    rmSync(tmpDir, { recursive: true, force: true });
+    return;
+  }
+
+  mgr.activate("echo-skill");
+  const active = mgr.getActiveTools();
+  if (active.length !== 1 || active[0].name !== "echo") {
+    console.log("❌ testSkillToolIntegration FAILED: active tools mismatch");
+    rmSync(tmpDir, { recursive: true, force: true });
+    return;
+  }
+
+  const tool = active[0];
+  const result = await tool.execute("call-1", { msg: "hello" }, undefined);
+  const text = (result.content[0] as any).text;
+
+  const match = text.includes("hello");
+
+  if (match) {
+    console.log("✅ testSkillToolIntegration passed");
+  } else {
+    console.log("❌ testSkillToolIntegration FAILED: got", JSON.stringify(text));
+  }
+
+  rmSync(tmpDir, { recursive: true, force: true });
+}
+
 async function test() {
   // --- Prompt structure unit tests (no API key needed) ---
   testBuildAutoSkillPrompt();
@@ -292,6 +343,7 @@ async function test() {
   testToolManagerActivateIdempotent();
   testToolManagerNoToolsJson();
   testToolManagerSyncToAgent();
+  await testSkillToolIntegration();
   console.log();
 
   console.log("Loading config...");
