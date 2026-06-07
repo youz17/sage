@@ -272,7 +272,9 @@ export interface SageTUI {
   tui: TUI;
   shutdown: () => void;
   onStreamDelta: (delta: string) => void;
+  onThinkingStart: () => void;
   onThinkingDelta: (delta: string) => void;
+  onThinkingEnd: () => void;
   onToolCallStart: (name: string, args: Record<string, unknown>, callId: string) => void;
   onToolCallEnd: (callId: string) => void;
   updateStatus: (props: { mode: string; thinkingLevel: string; modelName: string; sessionName: string }) => void;
@@ -374,6 +376,11 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
   tui.addChild(editor);
   tui.setFocus(editor);
 
+  const toggleThinking = () => {
+    messages.toggleThinking();
+    tui.requestRender();
+  };
+
   tui.addInputListener((data: string) => {
     if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.ctrl("d"))) {
       handlers.onQuit();
@@ -381,8 +388,8 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
       process.exit(0);
     }
     if (matchesKey(data, Key.ctrl("t"))) {
-      messages.toggleThinking();
-      tui.requestRender();
+      toggleThinking();
+      return { consume: true };
     }
     return undefined;
   });
@@ -398,8 +405,16 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
       messages.appendDelta(delta);
       tui.requestRender();
     },
+    onThinkingStart() {
+      messages.startThinking();
+      tui.requestRender();
+    },
     onThinkingDelta(delta: string) {
       messages.appendThinking(delta);
+      tui.requestRender();
+    },
+    onThinkingEnd() {
+      messages.endThinking();
       tui.requestRender();
     },
     onToolCallStart(name: string, _args: Record<string, unknown>, callId: string) {
@@ -422,10 +437,7 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
       messages.restoreMessages(msgs);
       tui.requestRender();
     },
-    toggleThinking() {
-      messages.toggleThinking();
-      tui.requestRender();
-    },
+    toggleThinking,
     addErrorMessage(text: string) {
       messages.addErrorMessage(text);
       tui.requestRender();

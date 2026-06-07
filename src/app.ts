@@ -319,8 +319,14 @@ function wireAgentEvents(
       if (ae.type === "text_delta") {
         tui.onStreamDelta(ae.delta);
       }
+      if (ae.type === "thinking_start") {
+        tui.onThinkingStart();
+      }
       if (ae.type === "thinking_delta") {
         tui.onThinkingDelta(ae.delta);
+      }
+      if (ae.type === "thinking_end") {
+        tui.onThinkingEnd();
       }
     }
     if (event.type === "tool_execution_start") {
