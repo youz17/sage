@@ -1,6 +1,7 @@
 export {
   loadSkill,
-  buildSkillPrompt,
+  buildSkillActivation,
+  buildManualSkillPrompt,
   getAllSkillNames,
   getAllSkills,
   getAutoSkills,

@@ -6,8 +6,98 @@
 import { getModel } from "@earendil-works/pi-ai";
 import { loadConfig } from "./config/loader.js";
 import { createSageAgent } from "./agent/index.js";
+import { buildAutoSkillPrompt, buildSkillActivation, buildManualSkillPrompt } from "./skills/loader.js";
+import type { Skill } from "./skills/loader.js";
+
+function testBuildAutoSkillPrompt() {
+  const skills: Skill[] = [
+    { name: "reflect", type: "auto", description: "回答前自省", prompt: "xxx" },
+    { name: "challenge", type: "auto", description: "魔鬼代言人", prompt: "yyy" },
+  ];
+
+  const result = buildAutoSkillPrompt(skills);
+
+  const checks = [
+    result.includes("<available_skills>"),
+    result.includes("</available_skills>"),
+    result.includes("<skill>"),
+    result.includes("</skill>"),
+    result.includes("<name>reflect</name>"),
+    result.includes("<description>回答前自省</description>"),
+    result.includes("<name>challenge</name>"),
+    result.includes("<description>魔鬼代言人</description>"),
+    !result.includes("- reflect"),
+  ];
+
+  const allPassed = checks.every(Boolean);
+  console.log(allPassed ? "✅ buildAutoSkillPrompt passed" : "❌ buildAutoSkillPrompt FAILED");
+  if (!allPassed) {
+    console.log("  Result:", result);
+  }
+}
+
+function testBuildSkillActivation() {
+  const skill: Skill = {
+    name: "test-skill",
+    type: "auto",
+    description: "测试技能",
+    prompt: "这是测试技能的指令内容：\n1. 做A\n2. 做B",
+  };
+
+  const result = buildSkillActivation(skill);
+
+  const checks = [
+    result.startsWith('<activated_skill name="test-skill">'),
+    result.endsWith("</activated_skill>"),
+    result.includes("这是测试技能的指令内容："),
+    result.includes("1. 做A"),
+    result.includes("2. 做B"),
+  ];
+
+  const allPassed = checks.every(Boolean);
+  console.log(allPassed ? "✅ buildSkillActivation passed" : "❌ buildSkillActivation FAILED");
+  if (!allPassed) {
+    console.log("  Result:", result);
+  }
+}
+
+function testBuildManualSkillPrompt() {
+  const skill: Skill = {
+    name: "goal",
+    type: "manual",
+    description: "目标分解",
+    prompt: "用户设定了一个目标。按以下步骤：\n1. 分解\n2. 执行",
+  };
+
+  const userText = "帮我分析这个项目";
+
+  const result = buildManualSkillPrompt(skill, userText);
+
+  const checks = [
+    result.startsWith('<activated_skill name="goal">'),
+    result.includes("</activated_skill>"),
+    result.includes("请按照上述指令处理以下用户输入："),
+    result.includes("<user_query>"),
+    result.includes("帮我分析这个项目"),
+    result.includes("</user_query>"),
+    result.indexOf("帮我分析这个项目") < result.indexOf("</user_query>"),
+    result.indexOf("请按照上述指令") > result.indexOf("</activated_skill>"),
+  ];
+
+  const allPassed = checks.every(Boolean);
+  console.log(allPassed ? "✅ buildManualSkillPrompt passed" : "❌ buildManualSkillPrompt FAILED");
+  if (!allPassed) {
+    console.log("  Result:", result);
+  }
+}
 
 async function test() {
+  // --- Prompt structure unit tests (no API key needed) ---
+  testBuildAutoSkillPrompt();
+  testBuildSkillActivation();
+  testBuildManualSkillPrompt();
+  console.log();
+
   console.log("Loading config...");
   const config = loadConfig();
 

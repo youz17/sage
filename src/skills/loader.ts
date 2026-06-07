@@ -1,6 +1,8 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Type } from "@earendil-works/pi-ai";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { getSubdir, scanMdFiles } from "../config/loader.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -104,27 +106,35 @@ export function getAutoSkills(skills?: Map<string, Skill>): Skill[] {
 
 export function buildAutoSkillPrompt(skills: Skill[]): string {
   if (skills.length === 0) return "";
-  return skills.map((s) => `- ${s.name}: ${s.description ?? "No description"}`).join("\n");
+  const items = skills.map(
+    (s) => `<skill>\n  <name>${s.name}</name>\n  <description>${s.description ?? "No description"}</description>\n</skill>`
+  );
+  return `<available_skills>\n${items.join("\n")}\n</available_skills>`;
 }
 
-export function buildUseSkillTool(skills: Skill[]): {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-} {
+const useSkillParams = Type.Object({
+  skill: Type.String({ description: "要激活的 skill 名称" }),
+});
+
+export function buildUseSkillTool(skills: Skill[]): AgentTool<typeof useSkillParams> {
   return {
     name: "use_skill",
-    description: "Activate a skill to get its full instructions and capabilities. Use when a skill's description suggests it would help with the current task.",
-    parameters: {
-      type: "object",
-      properties: {
-        skill: {
-          type: "string",
-          enum: skills.map((s) => s.name),
-          description: "The skill to activate",
-        },
-      },
-      required: ["skill"],
+    label: "Use Skill",
+    description:
+      "激活一个 skill 以获取其完整指令和能力。当某个 skill 的描述表明它对当前任务有帮助时使用。",
+    parameters: useSkillParams,
+    execute: async (_toolCallId, params) => {
+      const skill = loadSkill(params.skill);
+      if (!skill) {
+        return {
+          content: [{ type: "text" as const, text: `Skill "${params.skill}" 未找到。` }],
+          details: null,
+        };
+      }
+      return {
+        content: [{ type: "text" as const, text: buildSkillActivation(skill) }],
+        details: { skillName: skill.name },
+      };
     },
   };
 }
@@ -134,18 +144,22 @@ export function loadSkill(name: string): Skill | null {
   return all.get(name) ?? null;
 }
 
-// TODO 调整 skill 组织方式
-export function buildSkillPrompt(skillNames: string[]): string {
-  const parts: string[] = [];
-  for (const name of skillNames) {
-    const skill = loadSkill(name);
-    if (skill) {
-      parts.push(`<skill name="${skill.name}">\n${skill.prompt}\n</skill>`);
-    }
-  }
-  return parts.length > 0
-    ? `\n\n以下 skill 已激活。请遵循它们的指令：\n\n${parts.join("\n\n")}`
-    : "";
+export function buildSkillActivation(skill: Skill): string {
+  return `<activated_skill name="${skill.name}">\n${skill.prompt}\n</activated_skill>`;
+}
+
+export function buildManualSkillPrompt(skill: Skill, userText: string): string {
+  return [
+    `<activated_skill name="${skill.name}">`,
+    skill.prompt,
+    `</activated_skill>`,
+    ``,
+    `请按照上述指令处理以下用户输入：`,
+    ``,
+    `<user_query>`,
+    userText,
+    `</user_query>`,
+  ].join("\n");
 }
 
 export function getAllSkillNames(): string[] {

@@ -9,7 +9,7 @@ import { SessionManager, Session } from "./session/manager.js";
 import { getAllModeNames, isValidMode } from "./core/modes.js";
 import { Logger } from "./log/logger.js";
 import { buildSystemPrompt } from "./core/prompts.js";
-import { loadSkill } from "./skills/loader.js";
+import { loadSkill, buildSkillActivation, buildManualSkillPrompt } from "./skills/loader.js";
 import type { SageTUI, SageTUIHandlers } from "./tui/index.js";
 
 // ---- types ----
@@ -201,8 +201,8 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
         return;
       }
       const prompt = userText
-        ? `${skill.prompt}\n\n${userText}`
-        : skill.prompt;
+        ? buildManualSkillPrompt(skill, userText)
+        : buildSkillActivation(skill);
       Logger.info("skill:trigger", { sessionId: ctx.session!.id, skill: name });
       ctx.agent.prompt(prompt).catch((err: Error) => {
         Logger.error("error", { sessionId: ctx.session!.id, message: err.message, stack: err.stack });

@@ -1,7 +1,5 @@
 import { getModePrompt } from "./modes.js";
 import { loadRules } from "../config/loader.js";
-
-// TODO: 不同的prompt之间是否需要加上一些描述，比如应该遵循这样的mode，这样的rule，如下balabala
 export function buildSystemPrompt(mode: string, autoSkillPrompt?: string): string {
   const parts: string[] = [];
 
@@ -24,9 +22,9 @@ export function buildSystemPrompt(mode: string, autoSkillPrompt?: string): strin
   }
 
   if (autoSkillPrompt) {
-    parts.push("## Available Skills");
-    parts.push("You have the following skills available via the `use_skill` tool. Call use_skill(\"<name>\") to activate a skill and follow its instructions:");
     parts.push(autoSkillPrompt);
+    parts.push("");
+    parts.push("你可以使用 `use_skill` 工具激活以上技能，激活后将获得完整指令。");
     parts.push("");
   }
 

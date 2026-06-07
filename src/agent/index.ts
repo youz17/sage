@@ -23,7 +23,7 @@ export function createSageAgent(
   const tools: AgentTool[] = [];
 
   if (autoSkills.length > 0) {
-    tools.push(buildUseSkillTool(autoSkills) as unknown as AgentTool);
+    tools.push(buildUseSkillTool(autoSkills));
   }
 
   if (tavilyApiKey) {
