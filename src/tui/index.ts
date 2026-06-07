@@ -361,6 +361,7 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
 
     messages.addUserMessage(trimmed);
     messages.startAssistantMessage();
+    tui.requestRender();
     handlers.onInput(trimmed);
   };
 
