@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { getSubdir, scanMdFiles } from "../config/loader.js";
+import type { ToolManager } from "../agent/tool-manager.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -116,7 +117,7 @@ const useSkillParams = Type.Object({
   skill: Type.String({ description: "要激活的 skill 名称" }),
 });
 
-export function buildUseSkillTool(skills: Skill[], toolManager?: import("../agent/tool-manager.js").ToolManager): AgentTool<typeof useSkillParams> {
+export function buildUseSkillTool(skills: Skill[], toolManager?: ToolManager): AgentTool<typeof useSkillParams> {
   return {
     name: "use_skill",
     label: "Use Skill",
