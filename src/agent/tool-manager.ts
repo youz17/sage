@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Agent } from "@earendil-works/pi-agent-core";
+import { Logger } from "../log/logger.js";
 
 export function escapeShell(arg: string): string {
   return "'" + arg.replace(/'/g, "'\\''") + "'";
@@ -95,14 +96,14 @@ function scanSkillTools(skillsDir: string): Map<string, AgentTool[]> {
       const manifest: ToolsManifest = JSON.parse(raw);
 
       if (!Array.isArray(manifest.tools)) {
-        console.warn(`[ToolManager] ${manifestPath}: "tools" 不是数组，跳过`);
+        Logger.warn("tool-manager:tools-not-array", { manifestPath });
         continue;
       }
 
       const tools: AgentTool[] = [];
       for (const toolDef of manifest.tools) {
         if (!toolDef.name || !toolDef.command) {
-          console.warn(`[ToolManager] ${manifestPath}: 工具缺少 name 或 command，跳过`);
+          Logger.warn("tool-manager:missing-name-or-command", { manifestPath });
           continue;
         }
         tools.push(buildSkillTool(toolDef, dirPath));
@@ -112,7 +113,7 @@ function scanSkillTools(skillsDir: string): Map<string, AgentTool[]> {
         result.set(entry, tools);
       }
     } catch (err) {
-      console.warn(`[ToolManager] 解析 ${manifestPath} 失败:`, (err as Error).message);
+      Logger.warn("tool-manager:parse-failure", { manifestPath, error: (err as Error).message });
     }
   }
 
