@@ -63,7 +63,7 @@ function findSessionByName(name: string): Session | null {
     (s) =>
       s.id === name ||
       s.id.startsWith(name) ||
-      (s.title && s.title.toLowerCase().includes(name.toLowerCase())),
+      (s.name && s.name.toLowerCase().includes(name.toLowerCase())),
   );
   if (match) {
     return SessionManager.resume(match.id);
@@ -126,9 +126,9 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
     onSessionNew(name?: string) {
       ctx.sessionManager.saveCurrent();
       const s = ctx.sessionManager.newSession(ctx.currentMode);
-      if (name) s.title = name;
+      if (name) s.name = name;
       ctx.session = s;
-      ctx.logger.log("session:new", { id: s.id, title: name || "(auto)" });
+      ctx.logger.log("session:new", { id: s.id, name });
       ctx.tui.clearMessages();
       ctx.agent.state.messages = [];
       ctx.updateStatusBar();
@@ -141,8 +141,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
         return;
       }
       const lines = sessions.map((s, i) => {
-        const displayTitle = s.title || s.id;
-        return `  ${i + 1}. ${displayTitle} (${s.mode}) — ${s.updatedAt.slice(0, 10)}`;
+        return `  ${i + 1}. ${s.name}: ${s.description || "(no messages)"}`;
       });
       ctx.tui.addSystemMessage(`Sessions (${sessions.length}):\n${lines.join("\n")}`);
     },
@@ -157,15 +156,15 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
 
       ctx.tui.restoreMessages(resumed.messages);
       ctx.tui.addSystemMessage(
-        `Resumed: ${resumed.title || resumed.id} (${resumed.mode}, ${resumed.messages.length} messages)`,
+        `Resumed: ${resumed.name || resumed.id} (${resumed.mode}, ${resumed.messages.length} messages)`,
       );
 
       const s = ctx.sessionManager.newSession(resumed.mode);
       s.id = resumed.id;
-      s.title = resumed.title;
+      s.name = resumed.name;
       s.messages = resumed.messages;
       ctx.session = s;
-      ctx.logger.log("session:resume", { id: s.id, title: s.title || s.id });
+      ctx.logger.log("session:resume", { id: s.id, name: s.name });
       ctx.agent.state.messages = [...resumed.messages];
       ctx.currentMode = resumed.mode;
       ctx.agent.state.systemPrompt = buildSystemPrompt(resumed.mode, ctx.activeSkills);
@@ -178,7 +177,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
         (s) =>
           s.id === name ||
           s.id.startsWith(name) ||
-          (s.title && s.title.toLowerCase().includes(name.toLowerCase())),
+          (s.name && s.name.toLowerCase().includes(name.toLowerCase())),
       );
       const id = match?.id ?? name;
       if (SessionManager.delete(id)) {
@@ -186,6 +185,25 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       } else {
         ctx.tui.addSystemMessage(`Session "${name}" not found.`);
       }
+    },
+
+    onSessionRename(name: string) {
+      if (!name) {
+        ctx.tui.addSystemMessage("Usage: /session-rename <name>");
+        return;
+      }
+      if (!ctx.session) {
+        ctx.tui.addSystemMessage("No active session.");
+        return;
+      }
+      const ok = ctx.sessionManager.setName(name);
+      if (!ok) {
+        ctx.tui.addSystemMessage(`Session "${name}" already exists.`);
+        return;
+      }
+      ctx.logger.log("session:rename", { id: ctx.session.id, name });
+      ctx.tui.addSystemMessage(`Session renamed to "${name}".`);
+      ctx.updateStatusBar();
     },
 
     onSkillActivate(skill: string) {
@@ -227,7 +245,7 @@ function initSession(
       if (resumed) {
         const s = sessionManager.newSession(resumed.mode);
         s.id = resumed.id;
-        s.title = resumed.title;
+        s.name = resumed.name;
         s.messages = resumed.messages;
         session = s;
       }
@@ -238,7 +256,7 @@ function initSession(
         if (resumed) {
           const s = sessionManager.newSession(resumed.mode);
           s.id = resumed.id;
-          s.title = resumed.title;
+          s.name = resumed.name;
           s.messages = resumed.messages;
           session = s;
         }
@@ -251,7 +269,7 @@ function initSession(
       if (resumed) {
         const s = sessionManager.newSession(resumed.mode);
         s.id = resumed.id;
-        s.title = resumed.title;
+        s.name = resumed.name;
         s.messages = resumed.messages;
         session = s;
       }
@@ -261,7 +279,7 @@ function initSession(
   if (!session) {
     session = sessionManager.newSession(config.defaultMode);
     if (isNew && newName && !newName.startsWith("--")) {
-      session.title = newName;
+      session.name = newName;
     }
   }
 
@@ -398,14 +416,14 @@ async function main(): Promise<void> {
       thinkingLevel: "high",
       modelName: ctx.config.model.model,
       skills: ctx.activeSkills,
-      sessionName: ctx.session?.title,
+      sessionName: ctx.session?.name,
     });
   }
   ctx.updateStatusBar = updateStatusBar;
 
   const tui = createSageTUI(createTUIHandlers(ctx), {
     modes: () => getAllModeNames(),
-    sessions: () => SessionManager.list().map((s) => s.title || s.id),
+    sessions: () => SessionManager.list().map((s) => `${s.name}: ${s.description}`),
   });
   ctx.tui = tui;
 
