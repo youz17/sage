@@ -415,8 +415,7 @@ async function main(): Promise<void> {
       mode: ctx.currentMode,
       thinkingLevel: "high",
       modelName: ctx.config.model.model,
-      skills: ctx.activeSkills,
-      sessionName: ctx.session?.name,
+      sessionName: ctx.session!.name,
     });
   }
   ctx.updateStatusBar = updateStatusBar;

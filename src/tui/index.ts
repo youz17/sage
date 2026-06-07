@@ -90,19 +90,16 @@ class SageStatusBar implements Component {
   private _cachedWidth = -1;
   private _cachedLines: string[] = [];
 
-  update(mode: string, thinkingLevel: string, modelName: string, skills: string[], sessionName?: string): void {
+  update(mode: string, thinkingLevel: string, modelName: string, sessionName: string): void {
     const parts: string[] = [];
     // 可能 session id 更好。name的话，很多时候描述不清
     if (sessionName) {
-      parts.push(chalk.bold.cyan(sessionName));
+      parts.push(chalk.bold(sessionName));
     }
     parts.push(chalk.bold(`Mode: ${mode}`));
     parts.push(`Think: ${thinkingLevel}`);
     parts.push(`Model: ${modelName}`);
-    // TODO: 去掉 skill
-    if (skills.length > 0) {
-      parts.push(`Skills: ${skills.join(", ")}`);
-    }
+
     this._text = parts.join(" | ");
     this.invalidate();
   }
@@ -254,7 +251,7 @@ export interface SageTUI {
   onThinkingDelta: (delta: string) => void;
   onToolCallStart: (name: string, args: Record<string, unknown>, callId: string) => void;
   onToolCallEnd: (callId: string) => void;
-  updateStatus: (props: { mode: string; thinkingLevel: string; modelName: string; skills: string[]; sessionName?: string }) => void;
+  updateStatus: (props: { mode: string; thinkingLevel: string; modelName: string; sessionName: string }) => void;
   addSystemMessage: (text: string) => void;
   clearMessages: () => void;
   restoreMessages: (messages: AgentMessage[]) => void;
@@ -284,6 +281,8 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
 
   const messages = new SageMessages();
   tui.addChild(messages);
+  
+  tui.addChild(new Spacer(1));
 
   const statusBar = new SageStatusBar();
   tui.addChild(statusBar);
@@ -347,7 +346,6 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
     handlers.onInput(trimmed);
   };
 
-  tui.addChild(new Spacer(1));
   tui.addChild(editor);
   tui.setFocus(editor);
 
@@ -380,8 +378,8 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
       tui.requestRender();
     },
     onToolCallEnd(_callId: string) {},
-    updateStatus(props: { mode: string; thinkingLevel: string; modelName: string; skills: string[]; sessionName?: string }) {
-      statusBar.update(props.mode, props.thinkingLevel, props.modelName, props.skills, props.sessionName);
+    updateStatus(props: { mode: string; thinkingLevel: string; modelName: string; sessionName: string }) {
+      statusBar.update(props.mode, props.thinkingLevel, props.modelName, props.sessionName);
     },
     addSystemMessage(text: string) {
       messages.addSystemMessage(text);
