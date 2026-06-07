@@ -21,7 +21,6 @@ interface AppContext {
   config: SageConfig;
   session: Session | null;
   currentMode: string;
-  activeSkills: string[];
   tui: SageTUI;
   updateStatusBar(): void;
 }
@@ -106,7 +105,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       ctx.currentMode = mode;
       ctx.logger.info("mode:change", { mode });
       ctx.sessionManager.setMode(mode);
-      ctx.agent.state.systemPrompt = buildSystemPrompt(mode, ctx.activeSkills);
+      ctx.agent.state.systemPrompt = buildSystemPrompt(mode, []);
       ctx.updateStatusBar();
     },
 
@@ -154,7 +153,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       ctx.logger.info("session:resume", { id: s.id, name: s.name });
       ctx.agent.state.messages = [...resumed.messages];
       ctx.currentMode = resumed.mode;
-      ctx.agent.state.systemPrompt = buildSystemPrompt(resumed.mode, ctx.activeSkills);
+      ctx.agent.state.systemPrompt = buildSystemPrompt(resumed.mode, []);
       ctx.updateStatusBar();
     },
 
@@ -193,17 +192,6 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       ctx.updateStatusBar();
     },
 
-    onSkillActivate(skill: string) {
-      if (ctx.activeSkills.includes(skill)) {
-        ctx.activeSkills = ctx.activeSkills.filter((s) => s !== skill);
-        ctx.logger.info("skill:deactivate", { skill });
-      } else {
-        ctx.activeSkills.push(skill);
-        ctx.logger.info("skill:activate", { skill });
-      }
-      ctx.agent.state.systemPrompt = buildSystemPrompt(ctx.currentMode, ctx.activeSkills);
-      ctx.updateStatusBar();
-    },
   };
 }
 
@@ -213,7 +201,6 @@ interface InitSessionResult {
   session: Session;
   logger: Logger;
   agent: Agent;
-  activeSkills: string[];
   currentMode: string;
 }
 
@@ -273,12 +260,11 @@ function initSession(
   const logger = new Logger(session.id);
   logger.info("session:init", { id: session.id, mode: session.mode, model: config.model.model });
 
-  const activeSkills: string[] = [];// TODO: 需要active skill的概念吗？虽然可以考虑在 mode 上抽一层，但暂时应该不需要
   const currentMode = session.mode;
 
   const agent = createSageAgent(model, {
     mode: currentMode,
-    skillNames: activeSkills,
+    skillNames: [],
     tavilyApiKey: config.tavilyApiKey,
     sessionId: session.id,
   });
@@ -287,7 +273,7 @@ function initSession(
     agent.state.messages = [...session.messages];
   }
 
-  return { session, logger, agent, activeSkills, currentMode };
+  return { session, logger, agent, currentMode };
 }
 
 // ---- agent events ----
@@ -384,7 +370,7 @@ async function main(): Promise<void> {
 
   // Session setup
   const sessionManager = new SessionManager();
-  const { session, logger, agent, activeSkills, currentMode } = initSession(
+  const { session, logger, agent, currentMode } = initSession(
     sessionManager,
     parseArgs(process.argv.slice(2)),
     config,
@@ -400,7 +386,6 @@ async function main(): Promise<void> {
     config,
     session,
     currentMode,
-    activeSkills,
   } as AppContext;
 
   function updateStatusBar() {
