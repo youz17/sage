@@ -1,64 +1,67 @@
-# TODO Cleanup — Design Spec
+# TODO Cleanup — Design Spec (revised)
 
 **Date**: 2026-06-07  
 **Status**: approved
 
-## Scope
-
-Fix or rewrite actionable TODOs across `src/`. Excludes: prompt adjustments, status bar compression, `agent/index.ts:20`, `session/manager.ts:10`.
+Scope: 8 code changes across 7 files. Excludes: prompt, status bar, `Date type?` TODO.
 
 ---
 
-### 1. `app.ts:52` — reverse for loop in `extractAssistantText`
+### 1. `extractAssistantText` — reverse for loop
 
-**Change**: `[...messages].reverse().find()` → explicit reverse for loop.
-Saves one full-array copy and one reverse allocation.
+**File**: `src/app.ts`  
+Replace `[...messages].reverse().find()` with explicit reverse for loop.
 
-```ts
-function extractAssistantText(messages: AgentMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role !== "assistant") continue;
-    if (typeof m.content === "string") return m.content;
-    return JSON.stringify(m.content).slice(0, 1000);
-  }
-  return "";
-}
-```
+### 2. `findSessionByName` → `SessionManager` + `resume` → `load`
 
-### 2. `app.ts:60` — move `findSessionByName` into `SessionManager`
+**Files**: `src/session/manager.ts`, `src/app.ts`  
+- Add `SessionManager.findByName(name)` static method  
+- Rename `SessionManager.resume()` → `SessionManager.load()`  
+- Remove standalone `findSessionByName` from `app.ts`, update all callers
 
-**Change**: `findSessionByName(name)` → `SessionManager.findByName(name)` (static).
-Remove the standalone function from `app.ts`, add it as a static method on `SessionManager`.
-Callers: `onSessionResume` handler, `initSession`, `findSessionByName` references.
+### 3. Compaction log
 
-### 3. `session/manager.ts:101` — rename `resume()` → `load()`
+**File**: `src/agent/memory.ts`  
+Call `logger.log("memory:compact", ...)` when compaction triggers.
 
-**Change**: `SessionManager.resume(id)` → `SessionManager.load(id)`.
-Update all callers in `app.ts` (several in `initSession`, `onSessionResume`).
+### 4. Logger level-based methods
 
-### 4. `agent/memory.ts:41` — compaction log
+**File**: `src/log/logger.ts`, `src/app.ts`, `src/agent/memory.ts`  
+- Add `info(label, data?)` / `warn(label, data?)` / `error(label, data?)` methods to `Logger`  
+- Map to existing `log(key, data)` internally: `info("x", d)` → `log("info:x", d)`, etc.  
+- Update all callers to use level-based methods where appropriate:  
+  - `logger.log("session:init", ...)` → `logger.info("session:init", ...)`  
+  - `logger.log("error", ...)` → `logger.error("error", ...)`  
+  - `logger.log("tool:start", ...)` → keep as `log` (not a level)  
+  - Rule: if key starts with `"error"` or `"warn"`, use level method; otherwise keep `log` if it's a structured event key, or use `info` for general messages
 
-**Change**: add a log line when compaction triggers.
-The `compactMemory` function receives a `logger` parameter from the SageAgent config. Use it:
-```ts
-logger?.log("memory:compact", { inputCount: messages.length, splitPoint });
-```
+### 5. Remove `activeSkills`, always load all skills
 
-### 5–10. TODO rewrites (text-only, no logic change)
+**Files**: `src/app.ts`  
+- Delete `activeSkills: string[]` state and all toggle logic in `onSkillActivate`  
+- Skills are either always active (built-in) or loaded at startup (custom)  
+- `buildSystemPrompt` receives empty array or all loaded skill names  
+- Remove skill toggle logging (`skill:activate`/`skill:deactivate`)
 
-| # | File | Current | Rewrite |
-|---|------|---------|---------|
-| 6 | `log/logger.ts:36` | "log用对象的形式暴露接口往往有点过度设计" | `// IMPROVE: Logger should expose level-based methods (info/warn/error) instead of a generic log(key, data)` |
-| 6 | `log/logger.ts:37` | "log需要简单区分级别" | (merged into above) |
-| 7 | `app.ts:289` | "需要active skill的概念吗" | `// CONSIDER: should active skills be tracked explicitly, or derived from mode context?` |
-| 8 | `tui/index.ts:82` | "custom skills" | `// TODO: support user-defined custom skills in addition to built-in ones` |
-| 9 | `skills/loader.ts` (4处) | scattered "和mode逻辑相似" / "提取公共逻辑" | consolidate into 1: `// IMPROVE: extract shared file-walking + YAML parsing logic used by both skill loader and mode loader` |
-| 10 | `core/modes.ts` (2处) | "通用能力, 考虑抽取" / "这种路径没有更合理的处理吗" | `// IMPROVE: extract shared file-walking + YAML parsing logic into a common utility (see also skills/loader.ts)` |
+### 6. Custom skills — load at startup, register as tools + commands
 
-### Non-goals
+**Files**: `src/app.ts`, `src/agent/index.ts`, `src/skills/loader.ts`, `src/tui/index.ts`  
+- `skills/loader.ts` already has the loading logic; expose loaded skill list  
+- In `main()`: after startup, load all custom skills from the skills directory  
+- Register each custom skill as an agent tool (via `createSageAgent` options or post-creation)  
+- Register each custom skill name as a slash command (via `buildCommands()` in tui)  
+- `/skillname` triggers the agent to use that skill's tool  
+- No hot reload — one-time load at startup
 
-- `agent/index.ts:20` (kept as-is)
-- `session/manager.ts:10` (kept as-is)
-- `core/prompts.ts:5` (prompt — excluded)
-- `tui/index.ts:112` (status bar — excluded)
+### 7. Extract shared file-walking + YAML parsing
+
+**Files**: `src/skills/loader.ts`, `src/core/modes.ts`, new `src/core/file-loader.ts`  
+- Create `src/core/file-loader.ts` with:  
+  - `walkDir(dir, ext)` — recursively list files with given extension  
+  - `loadYamlFiles<T>(dir)` — load all `.yaml`/`.yml` files from dir, parse, return `T[]`  
+- Refactor `loader.ts` and `modes.ts` to use these utilities
+
+### 8. `modes.ts` hardcoded path
+
+**File**: `src/core/modes.ts`  
+Replace `__dirname`-based path resolution with `getSubdir("modes")` from config layer (consistent with how sessions/skills do it).

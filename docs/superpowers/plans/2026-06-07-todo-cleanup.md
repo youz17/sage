@@ -1,30 +1,20 @@
-# TODO Cleanup — Implementation Plan
+# TODO Cleanup — Implementation Plan (revised)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix 4 code-level TODOs and rewrite 5 comment-level TODOs to be more actionable.
+**Goal:** Implement 8 code improvements cleaned up from TODO comments across 7 files.
 
-**Architecture:** 8 independent changes across 7 files. Grouped into 4 tasks.
+**Architecture:** 6 independent tasks. Task 5 creates a new shared utility, Task 6 integrates custom skills at startup.
 
 ---
 
-### Task 1: `extractAssistantText` reverse for loop
+### Task 1: Reverse for loop + `findSessionByName` → `SessionManager.load` rename
 
-**Files:** Modify: `src/app.ts`
+**Files:** Modify: `src/app.ts`, `src/session/manager.ts`
 
-- [ ] **Step 1: Replace the function**
+- [ ] **Step 1: Reverse for loop in `extractAssistantText`**
 
-Replace lines 51-57:
-```ts
-function extractAssistantText(messages: AgentMessage[]): string {
-    // TODO: 直接反向for循环效率更高
-  const last = [...messages].reverse().find((m) => m.role === "assistant");
-  if (!last) return "";
-  if (typeof last.content === "string") return last.content;
-  return JSON.stringify(last.content).slice(0, 1000);
-}
-```
-With:
+In `src/app.ts`, replace lines 51-57:
 ```ts
 function extractAssistantText(messages: AgentMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -37,34 +27,13 @@ function extractAssistantText(messages: AgentMessage[]): string {
 }
 ```
 
-- [ ] **Step 2: Run type check**
-```bash
-npm run build
-```
-Expected: PASS
+- [ ] **Step 2: Rename `resume` → `load` in `src/session/manager.ts`**
 
-- [ ] **Step 3: Commit**
-```bash
-git add src/app.ts
-git commit -m "perf(app): use reverse for loop in extractAssistantText"
-```
+Change method name `static resume` → `static load` (line ~93). No signature change.
 
----
+- [ ] **Step 3: Add `SessionManager.findByName` static method**
 
-### Task 2: Move `findSessionByName` → `SessionManager.findByName` + rename `resume` → `load`
-
-**Files:** Modify: `src/session/manager.ts`, `src/app.ts`
-
-- [ ] **Step 1: Rename `resume` → `load` and add `findByName` in `SessionManager`**
-
-In `src/session/manager.ts`:
-
-a) Rename `static resume(sessionId)` → `static load(sessionId)` (line ~93):
-```ts
-  static load(sessionId: string): Session | null {
-```
-
-b) Add new static method `findByName` (before `load`):
+Insert after `load()` in `src/session/manager.ts`:
 ```ts
   static findByName(name: string): Session | null {
     const sessions = SessionManager.list();
@@ -81,144 +50,198 @@ b) Add new static method `findByName` (before `load`):
   }
 ```
 
-- [ ] **Step 2: Update `app.ts` — remove standalone `findSessionByName`, update all callers**
+- [ ] **Step 4: Update `app.ts` — remove standalone function, update callers**
 
-In `src/app.ts`:
+Delete `findSessionByName` function (lines 59-68). Replace all references:
+- `findSessionByName(x)` → `SessionManager.findByName(x)` (in `onSessionResume` and `initSession`)
+- `SessionManager.resume(x)` → `SessionManager.load(x)` (in `initSession`)
 
-a) Delete the `findSessionByName` function (lines 59-68)
+- [ ] **Step 5: Build + commit**
 
-b) Replace all `findSessionByName(x)` with `SessionManager.findByName(x)`:
-   - In `onSessionResume` handler
-   - In `initSession` (CLI `--resume` path)
-
-c) Replace all `SessionManager.resume(x)` with `SessionManager.load(x)`:
-   - In `initSession` (auto-resume paths)
-
-- [ ] **Step 3: Run type check**
 ```bash
 npm run build
-```
-Expected: PASS
-
-- [ ] **Step 4: Commit**
-```bash
-git add src/session/manager.ts src/app.ts
-git commit -m "refactor(session): move findSessionByName into SessionManager.findByName, rename resume→load"
+git add src/app.ts src/session/manager.ts
+git commit -m "perf: reverse for loop, move findByName to SessionManager, rename resume→load"
 ```
 
 ---
 
-### Task 3: Compaction log
+### Task 2: Compaction log
 
 **Files:** Modify: `src/agent/memory.ts`
 
-- [ ] **Step 1: Add logger call when compaction triggers**
+- [ ] **Step 1: Add log call**
 
-Replace line 41:
-```ts
-  // TODO: 需要触发压缩的时候日志
-```
-With:
+After `splitPoint` calculation (after line 42), insert:
 ```ts
   logger?.log("memory:compact", { inputCount: messages.length, splitPoint });
 ```
 
-Move this line right after the `splitPoint` calculation (after line 42) so it logs before doing the actual compaction work.
+Remove the TODO comment on line 41.
 
-- [ ] **Step 2: Run type check**
+- [ ] **Step 2: Build + commit**
+
 ```bash
 npm run build
-```
-Expected: PASS
-
-- [ ] **Step 3: Commit**
-```bash
 git add src/agent/memory.ts
 git commit -m "feat(agent): log when memory compaction triggers"
 ```
 
 ---
 
-### Task 4: Rewrite TODOs (text-only changes)
+### Task 3: Logger level-based methods
 
-**Files:** Modify: `src/log/logger.ts`, `src/app.ts`, `src/tui/index.ts`, `src/skills/loader.ts`, `src/core/modes.ts`
+**Files:** Modify: `src/log/logger.ts`, `src/app.ts`, `src/agent/memory.ts`
 
-- [ ] **Step 1: `src/log/logger.ts` lines 36-37**
+- [ ] **Step 1: Add `info`/`warn`/`error` methods to Logger**
 
-Replace both TODO lines:
+In `src/log/logger.ts`, add to the Logger class:
 ```ts
-// TODO: log用对象的形式暴露接口往往有点过度设计
-// TODO: log需要简单区分级别
-```
-With:
-```ts
-// IMPROVE: Logger should expose level-based methods (info/warn/error) instead of a generic log(key, data)
+  info(key: string, data?: Record<string, unknown>): void {
+    this.log(`info:${key}`, data ?? {});
+  }
+  warn(key: string, data?: Record<string, unknown>): void {
+    this.log(`warn:${key}`, data ?? {});
+  }
+  error(key: string, data?: Record<string, unknown>): void {
+    this.log(`error:${key}`, data ?? {});
+  }
 ```
 
-- [ ] **Step 2: `src/app.ts` line ~289**
+- [ ] **Step 2: Update callers in `src/app.ts`**
 
 Replace:
-```ts
-  const activeSkills: string[] = [];// TODO: 需要active skill的概念吗？虽然可以考虑在 mode 上抽一层，但暂时应该不需要
-```
-With:
-```ts
-  const activeSkills: string[] = [];// CONSIDER: should active skills be tracked explicitly, or derived from mode context?
-```
+- `logger.log("session:init", ...)` → `logger.info("session:init", ...)`
+- `logger.log("error", ...)` → `logger.error("error", ...)`
+- `logger.log("agent:error", ...)` → `logger.error("agent:error", ...)`
+- `logger.log("session:new", ...)` → `logger.info("session:new", ...)`
+- `logger.log("session:resume", ...)` → `logger.info("session:resume", ...)`
+- `logger.log("session:rename", ...)` → `logger.info("session:rename", ...)`
+- `logger.log("session:save", ...)` → `logger.info("session:save", ...)`
+- `logger.log("mode:change", ...)` → `logger.info("mode:change", ...)`
+- `logger.log("agent:prompt", ...)` → `logger.info("agent:prompt", ...)`
+- `logger.log("agent:response", ...)` → `logger.info("agent:response", ...)`
+- `logger.log("skill:activate", ...)` → `logger.info("skill:activate", ...)`
+- `logger.log("skill:deactivate", ...)` → `logger.info("skill:deactivate", ...)`
+- `logger.log("tool:start", ...)` → keep as `log` (structured tool log)
+- `logger.log("tool:end", ...)` → keep as `log`
+- `logger.log("agent:empty_response", ...)` → `logger.warn("agent:empty_response", ...)` 
 
-- [ ] **Step 3: `src/tui/index.ts` line ~82**
+- [ ] **Step 3: Update caller in `src/agent/memory.ts`**
 
-Replace:
-```ts
-    // TODO: custom skills
-```
-With:
-```ts
-    // TODO: support user-defined custom skills in addition to built-in ones
-```
+Replace `logger?.log("memory:compact", ...)` (added in Task 2) → `logger?.info("memory:compact", ...)`
 
-- [ ] **Step 4: `src/skills/loader.ts` — consolidate 4 scattered TODOs**
+- [ ] **Step 4: Build + commit**
 
-Find the 4 TODO lines (lines ~20, ~40, ~76, ~140) and consolidate the first 3 into one at ~20, remove the others:
-
-At line ~20, replace:
-```ts
-// TODO: 和 mode 逻辑相似
-```
-With:
-```ts
-// IMPROVE: extract shared file-walking + YAML parsing logic used by both skill loader and mode loader
-```
-
-Remove the duplicate TODO lines at ~40 and ~76. Keep line ~140 unchanged (it's about skill organization, a different concern).
-
-- [ ] **Step 5: `src/core/modes.ts` lines ~14, ~31**
-
-Replace the two TODO lines:
-```ts
-// TODO: 通用能力, 考虑抽取
-```
-With:
-```ts
-// IMPROVE: extract shared file-walking + YAML parsing logic into a common utility (see also skills/loader.ts)
-```
-
-```ts
-// TODO: 这种路径没有更合理的处理吗？
-```
-With:
-```ts
-// IMPROVE: use a configurable base path instead of hardcoded __dirname resolution
-```
-
-- [ ] **Step 6: Run type check**
 ```bash
 npm run build
+git add src/log/logger.ts src/app.ts src/agent/memory.ts
+git commit -m "feat(log): add info/warn/error level methods to Logger"
 ```
-Expected: PASS (text-only changes, no logic affected)
 
-- [ ] **Step 7: Commit**
+---
+
+### Task 4: Remove `activeSkills`, load all skills always
+
+**Files:** Modify: `src/app.ts`
+
+- [ ] **Step 1: Remove `activeSkills` array and toggle logic**
+
+In `createTUIHandlers`:
+- Delete `activeSkills: string[]` from AppContext and all references
+- Replace `onSkillActivate` handler to directly toggle the skill in agent's state (or if all skills are always active, make it a no-op or remove)
+
+In `main()`:
+- Delete `let activeSkills: string[] = []`
+- Pass all loaded skill names to `initSession` (or just pass `[]` since skills are always active)
+
+In `buildSystemPrompt` calls: pass `[]` (all skills active by default, no filtering)
+
+- [ ] **Step 2: Clean up logging**
+
+Remove `skill:activate`/`skill:deactivate` log calls (or replace with skill-triggered logs).
+
+- [ ] **Step 3: Build + commit**
+
 ```bash
-git add src/log/logger.ts src/app.ts src/tui/index.ts src/skills/loader.ts src/core/modes.ts
-git commit -m "docs: rewrite TODOs to be more actionable"
+npm run build
+git add src/app.ts
+git commit -m "refactor(app): remove activeSkills toggle, all skills always active"
+```
+
+---
+
+### Task 5: Extract shared file-walking + YAML utility
+
+**Files:** Create: `src/core/file-loader.ts`; Modify: `src/skills/loader.ts`, `src/core/modes.ts`
+
+- [ ] **Step 1: Create `src/core/file-loader.ts`**
+
+```ts
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+export function walkDir(dir: string, ext: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  const results: string[] = [];
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...walkDir(fullPath, ext));
+    } else if (entry.name.endsWith(ext)) {
+      results.push(fullPath);
+    }
+  }
+  return results;
+}
+
+export function loadYamlFiles<T>(dir: string): T[] {
+  // Use existing YAML parsing approach from loader.ts/modes.ts
+  const yaml = require("js-yaml");  // or import, follow existing pattern
+  const files = walkDir(dir, ".yaml").concat(walkDir(dir, ".yml"));
+  return files.map((f) => yaml.load(fs.readFileSync(f, "utf-8")) as T);
+}
+```
+
+- [ ] **Step 2: Refactor `src/skills/loader.ts` to use `file-loader`**
+
+Replace file-walking + YAML parsing with calls to the new utilities.
+
+- [ ] **Step 3: Refactor `src/core/modes.ts` to use `file-loader`**
+
+Same — replace file-walking + YAML parsing. Also fix hardcoded path: use `getSubdir("modes")` from config instead of `__dirname`.
+
+- [ ] **Step 4: Build + commit**
+
+```bash
+npm run build
+git add src/core/file-loader.ts src/skills/loader.ts src/core/modes.ts
+git commit -m "refactor(core): extract shared file-walking and YAML utility"
+```
+
+---
+
+### Task 6: Custom skills at startup
+
+**Files:** Modify: `src/app.ts`, `src/skills/loader.ts`, `src/tui/index.ts`
+
+- [ ] **Step 1: Expose skill list from loader**
+
+Ensure `src/skills/loader.ts` exports a function that returns all loaded custom skill names (e.g., `listCustomSkills()`).
+
+- [ ] **Step 2: Register custom skills as agent tools in `main()`**
+
+After agent creation, load custom skills and register each as an agent tool. Use the agent's tool registration API (check `createSageAgent` source for how tools are added).
+
+- [ ] **Step 3: Register custom skill names as slash commands in `buildCommands()`**
+
+In `src/tui/index.ts`, dynamically add a command entry for each custom skill name. The command triggers the corresponding tool via the agent.
+
+- [ ] **Step 4: Build + commit**
+
+```bash
+npm run build
+git add src/app.ts src/skills/loader.ts src/tui/index.ts
+git commit -m "feat: load custom skills at startup, register as tools and commands"
 ```
