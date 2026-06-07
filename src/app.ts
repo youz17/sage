@@ -423,7 +423,7 @@ async function main(): Promise<void> {
 
   const tui = createSageTUI(createTUIHandlers(ctx), {
     modes: () => getAllModeNames(),
-    sessions: () => SessionManager.list().map((s) => `${s.name}: ${s.description}`),
+    sessions: () => SessionManager.list().map((s) => s.name),
   });
   ctx.tui = tui;
 
