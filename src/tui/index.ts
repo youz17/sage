@@ -270,6 +270,7 @@ export interface SageTUIHandlers {
   onSessionResume: (name: string) => void;
   onSessionDelete: (name: string) => void;
   onSkillActivate: (skill: string) => void;
+  onSessionRename: (name: string) => void;
 }
 
 export function createSageTUI(handlers: SageTUIHandlers, completions: {
@@ -334,6 +335,9 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
         case "challenge":
         case "goal":
           handlers.onSkillActivate(cmd);
+          return;
+        case "session-rename":
+          handlers.onSessionRename(args);
           return;
       }
     }
