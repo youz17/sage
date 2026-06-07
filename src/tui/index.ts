@@ -12,6 +12,7 @@ import {
   matchesKey,
 } from "@earendil-works/pi-tui";
 import type { Component, MarkdownTheme } from "@earendil-works/pi-tui";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 // --- Themes ---
 
@@ -128,6 +129,18 @@ class SageStatusBar implements Component {
 
 // --- Message Rendering ---
 
+function getMessageText(msg: AgentMessage): string {
+  const content = (msg as { content: unknown }).content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c): c is { text?: string } => typeof c === "object" && c !== null && "text" in c)
+      .map((c) => c.text || "")
+      .join("\n");
+  }
+  return "";
+}
+
 class SageMessages extends Container {
   private _streamingMarkdown: Markdown | null = null;
   private _streamingContent = "";
@@ -199,6 +212,31 @@ class SageMessages extends Container {
 
   addToolCall(name: string, _callId: string): void {
     this.addChild(new Text(`  ${chalk.dim("[tool]")} ${chalk.cyan(name)}`));
+  }
+
+  addAssistantMessage(text: string): void {
+    this.addChild(new Spacer(1));
+    this.addChild(new Text(`  ${chalk.bold.blue("Sage:")}`));
+    const md = new Markdown(text, 2, 0, sageMarkdownTheme);
+    this.addChild(md);
+  }
+
+  restoreMessages(messages: AgentMessage[]): void {
+    this.clearMessages();
+    for (const msg of messages) {
+      if (msg.role === "user") {
+        const text = getMessageText(msg);
+        this.addUserMessage(text);
+      } else if (msg.role === "assistant") {
+        const text = getMessageText(msg);
+        this.addAssistantMessage(text);
+      } else if (msg.role === "toolResult") {
+        const label = (msg as { isError?: boolean; toolName?: string }).isError
+          ? `[tool error: ${(msg as { toolName: string }).toolName}]`
+          : `[tool: ${(msg as { toolName: string }).toolName}]`;
+        this.addSystemMessage(label);
+      }
+    }
   }
 
   addErrorMessage(text: string): void {
