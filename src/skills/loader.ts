@@ -116,7 +116,7 @@ const useSkillParams = Type.Object({
   skill: Type.String({ description: "要激活的 skill 名称" }),
 });
 
-export function buildUseSkillTool(skills: Skill[]): AgentTool<typeof useSkillParams> {
+export function buildUseSkillTool(skills: Skill[], toolManager?: import("../agent/tool-manager.js").ToolManager): AgentTool<typeof useSkillParams> {
   return {
     name: "use_skill",
     label: "Use Skill",
@@ -131,9 +131,25 @@ export function buildUseSkillTool(skills: Skill[]): AgentTool<typeof useSkillPar
           details: null,
         };
       }
+
+      // Activate skill tools if available
+      if (toolManager) {
+        toolManager.activate(params.skill);
+      }
+
+      // Build response: skill prompt + tool list
+      let responseText = buildSkillActivation(skill);
+
+      if (toolManager) {
+        const toolsDesc = toolManager.getToolDescriptions(params.skill);
+        if (toolsDesc) {
+          responseText += `\n\n此技能提供了以下工具：\n${toolsDesc}`;
+        }
+      }
+
       return {
-        content: [{ type: "text" as const, text: buildSkillActivation(skill) }],
-        details: { skillName: skill.name },
+        content: [{ type: "text" as const, text: responseText }],
+        details: { skillName: skill.name, toolsActivated: toolManager?.getToolCount(params.skill) ?? 0 },
       };
     },
   };
