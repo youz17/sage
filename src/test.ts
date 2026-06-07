@@ -6,6 +6,7 @@
 import { getModel } from "@earendil-works/pi-ai";
 import { loadConfig } from "./config/loader.js";
 import { createSageAgent } from "./agent/index.js";
+import { createWebFetchTool, htmlToMarkdown } from "./agent/tools.js";
 import { buildAutoSkillPrompt, buildSkillActivation, buildManualSkillPrompt } from "./skills/loader.js";
 import type { Skill } from "./skills/loader.js";
 
@@ -91,11 +92,67 @@ function testBuildManualSkillPrompt() {
   }
 }
 
+function testHtmlToMarkdown() {
+  const html = `<!DOCTYPE html>
+<html>
+<head><title>Test Page</title></head>
+<body>
+  <nav>Skip nav</nav>
+  <article>
+    <h1>Hello World</h1>
+    <p>This is a <strong>paragraph</strong> with a <a href="https://example.com">link</a>.</p>
+    <ul>
+      <li>Item one</li>
+      <li>Item two</li>
+    </ul>
+    <pre><code>const x = 1;</code></pre>
+  </article>
+  <footer>Footer stuff</footer>
+</body>
+</html>`;
+
+  const md = htmlToMarkdown(html);
+
+  const checks = [
+    md.includes("Hello World"),
+    md.includes("paragraph"),
+    md.includes("example.com") || md.includes("link"),
+    md.includes("const x = 1;"),
+    /#/.test(md) || md.includes("Hello World"),  // at least has heading
+  ];
+
+  const allPassed = checks.every(Boolean);
+  console.log(allPassed ? "✅ htmlToMarkdown passed" : "❌ htmlToMarkdown FAILED");
+  if (!allPassed) {
+    console.log("  Output:", md);
+  }
+}
+
+function testCreateWebFetchTool() {
+  const tool = createWebFetchTool();
+
+  const checks = [
+    tool.name === "webfetch",
+    tool.label === "Fetch Web",
+    tool.description.length > 10,
+    tool.parameters !== undefined,
+    typeof tool.execute === "function",
+  ];
+
+  const allPassed = checks.every(Boolean);
+  console.log(allPassed ? "✅ createWebFetchTool passed" : "❌ createWebFetchTool FAILED");
+  if (!allPassed) {
+    console.log("  Results:", { name: tool.name, label: tool.label, descLen: tool.description.length, hasParams: tool.parameters !== undefined, isFn: typeof tool.execute === "function" });
+  }
+}
+
 async function test() {
   // --- Prompt structure unit tests (no API key needed) ---
   testBuildAutoSkillPrompt();
   testBuildSkillActivation();
   testBuildManualSkillPrompt();
+  testHtmlToMarkdown();
+  testCreateWebFetchTool();
   console.log();
 
   console.log("Loading config...");

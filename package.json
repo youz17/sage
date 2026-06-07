@@ -12,13 +12,18 @@
     "@earendil-works/pi-agent-core": "^0.78.0",
     "@earendil-works/pi-ai": "^0.78.0",
     "@earendil-works/pi-tui": "^0.78.0",
+    "@mozilla/readability": "^0.6.0",
     "dotenv": "^16.5.0",
+    "jsdom": "^29.1.1",
     "marked": "^15.0.12",
-    "marked-terminal": "^7.3.0"
+    "marked-terminal": "^7.3.0",
+    "turndown": "^7.2.4"
   },
   "devDependencies": {
+    "@types/jsdom": "^28.0.3",
     "@types/marked-terminal": "^6.1.1",
     "@types/node": "^22.15.0",
+    "@types/turndown": "^5.0.6",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }

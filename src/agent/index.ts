@@ -3,7 +3,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { SageModelConfig } from "../config/types.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { buildSystemPrompt } from "../core/prompts.js";
-import { createWebSearchTool } from "./tools.js";
+import { createWebSearchTool, createWebFetchTool } from "./tools.js";
 import { getAutoSkills, buildAutoSkillPrompt, buildUseSkillTool } from "../skills/loader.js";
 import { compactMemory } from "./memory.js";
 
@@ -25,6 +25,8 @@ export function createSageAgent(
   if (autoSkills.length > 0) {
     tools.push(buildUseSkillTool(autoSkills));
   }
+
+  tools.push(createWebFetchTool());
 
   if (tavilyApiKey) {
     tools.push(createWebSearchTool(tavilyApiKey));
