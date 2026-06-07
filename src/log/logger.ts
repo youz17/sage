@@ -33,6 +33,7 @@ function sanitize(obj: unknown): unknown {
   return obj;
 }
 
+// TODO: log用对象的形式暴露接口往往有点过度设计
 export class Logger {
   private stream: fs.WriteStream;
 

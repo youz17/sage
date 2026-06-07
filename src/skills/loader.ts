@@ -134,6 +134,7 @@ export function loadSkill(name: string): Skill | null {
   return all.get(name) ?? null;
 }
 
+// TODO 调整 skill 组织方式
 export function buildSkillPrompt(skillNames: string[]): string {
   const parts: string[] = [];
   for (const name of skillNames) {

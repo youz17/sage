@@ -63,7 +63,7 @@ function buildCommands(
     {
       name: "session-resume",
       description: "Resume a session",
-      argumentHint: "<name>",
+      argumentHint: "<name>", // 是否应该是 id，但是补全中id后面增加描述
       getArgumentCompletions: async (text) => plainFilter(sessions(), text),
     },
     {
@@ -72,11 +72,13 @@ function buildCommands(
       argumentHint: "<name>",
       getArgumentCompletions: async (text) => plainFilter(sessions(), text),
     },
+    { name: "quit", description: "Exit Sage" },
+    { name: "exit", description: "Exit Sage" },
+    // skills
     { name: "reflect", description: "Activate reflect skill" },
     { name: "challenge", description: "Activate challenge skill" },
     { name: "goal", description: "Activate goal skill" },
-    { name: "quit", description: "Exit Sage" },
-    { name: "exit", description: "Exit Sage" },
+    // TODO: custom skills
   ];
 }
 
@@ -89,12 +91,14 @@ class SageStatusBar implements Component {
 
   update(mode: string, thinkingLevel: string, modelName: string, skills: string[], sessionName?: string): void {
     const parts: string[] = [];
+    // 可能 session id 更好。name的话，很多时候描述不清
     if (sessionName) {
       parts.push(chalk.bold.cyan(sessionName));
     }
     parts.push(chalk.bold(`Mode: ${mode}`));
     parts.push(`Think: ${thinkingLevel}`);
     parts.push(`Model: ${modelName}`);
+    // TODO: 去掉 skill
     if (skills.length > 0) {
       parts.push(`Skills: ${skills.join(", ")}`);
     }
@@ -106,6 +110,8 @@ class SageStatusBar implements Component {
     if (this._cachedWidth === width && this._cachedLines.length > 0) {
       return this._cachedLines;
     }
+
+    // TODO: ui log to long, 压缩应该是有选择的，比如 session name 可以压缩，但是 model之类的不用压缩。或者整个省略某项
     const line = this._text.length > width
       ? this._text.slice(0, width - 3) + "..."
       : this._text.padEnd(width);

@@ -11,6 +11,7 @@ export interface Mode {
   prompt: string;
 }
 
+// TODO: 通用能力, 考虑抽取
 function parseFrontmatter(content: string): { description: string; body: string } | null {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!match) return null;
@@ -27,6 +28,8 @@ function parseFrontmatter(content: string): { description: string; body: string 
   };
 }
 
+// TODO: 这种路径没有更合理的处理吗？
+// 至少抽出一个统一的 dir 管理 util
 function findBuiltinDir(): string | null {
   const tsxPath = join(__dirname, "builtin");
   if (existsSync(tsxPath)) return tsxPath;
@@ -37,31 +40,11 @@ function findBuiltinDir(): string | null {
   return null;
 }
 
-function scanBuiltinModes(): Map<string, Mode> {
+function scanModes(dir: string | null): Map<string, Mode> {
   const modes = new Map<string, Mode>();
-  const builtinDir = findBuiltinDir();
-  if (!builtinDir) return modes;
+  if (!dir) return modes;
 
-  for (const file of readdirSync(builtinDir)) {
-    if (!file.endsWith(".md")) continue;
-    const name = file.slice(0, -3);
-    const raw = readFileSync(join(builtinDir, file), "utf-8");
-    const parsed = parseFrontmatter(raw);
-    if (parsed) {
-      modes.set(name, {
-        name,
-        description: parsed.description,
-        prompt: parsed.body,
-      });
-    }
-  }
-  return modes;
-}
-
-function scanCustomModes(): Map<string, Mode> {
-  const modes = new Map<string, Mode>();
-  const customDir = getSubdir("modes");
-  const raw = scanMdFiles(customDir);
+  const raw = scanMdFiles(dir);
   for (const [name, content] of raw) {
     const parsed = parseFrontmatter(content);
     if (parsed) {
@@ -73,6 +56,14 @@ function scanCustomModes(): Map<string, Mode> {
     }
   }
   return modes;
+}
+
+function scanBuiltinModes(): Map<string, Mode> {
+  return scanModes(findBuiltinDir());
+}
+
+function scanCustomModes(): Map<string, Mode> {
+  return scanModes(getSubdir("modes"));
 }
 
 export function getAllModes(): Map<string, Mode> {

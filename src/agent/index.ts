@@ -17,6 +17,7 @@ export function createSageAgent(
 ) {
   const { mode = "default", skillNames = [], tavilyApiKey, sessionId } = options;
 
+  // TODO: 这两个到底是否应该是tool
   const tools: AgentTool[] = [
     createReflectTool(),
     createChallengeTool(),

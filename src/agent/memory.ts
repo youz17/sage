@@ -38,6 +38,7 @@ export async function compactMemory(
   if (estimatedTokens < contextWindow * 0.7) return null;
   if (messages.length < 6) return null;
 
+  // TODO: 需要触发压缩的时候日志
   const splitPoint = Math.max(2, Math.floor(messages.length * 0.4));
   const toCompact = messages.slice(0, splitPoint);
   const recent = messages.slice(splitPoint);

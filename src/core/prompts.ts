@@ -2,6 +2,7 @@ import { getModePrompt } from "./modes.js";
 import { buildSkillPrompt } from "../skills/loader.js";
 import { loadRules } from "../config/loader.js";
 
+// TODO: 不同的prompt之间是否需要加上一些描述，比如应该遵循这样的mode，这样的rule，如下balabala
 export function buildSystemPrompt(mode: string, skillNames: string[]): string {
   const parts: string[] = [];
 

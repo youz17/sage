@@ -7,7 +7,7 @@ export interface Session {
   id: string;
   title: string;
   mode: string;
-  createdAt: string;
+  createdAt: string; // TODO: Date type?
   updatedAt: string;
   messages: AgentMessage[];
 }
@@ -31,6 +31,7 @@ function generateId(): string {
   return `${dateStr}-${rand}`;
 }
 
+// TODO: 调用ai总结描述
 function generateTitle(messages: AgentMessage[]): string {
   const firstUser = messages.find((m) => m.role === "user");
   if (!firstUser) return "New Session";
@@ -88,6 +89,7 @@ export class SessionManager {
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
 
+  // TODO: 命名有点奇怪，实际是获取session信息，没有执行 resume 操作
   static resume(sessionId: string): Session | null {
     const filePath = sessionPath(sessionId);
     if (!fs.existsSync(filePath)) return null;

@@ -1,7 +1,7 @@
 import { getModel } from "@earendil-works/pi-ai";
 import { loadConfig } from "./config/loader.js";
 import { createSageAgent } from "./agent/index.js";
-import { SessionManager } from "./session/manager.js";
+import { SessionManager, Session } from "./session/manager.js";
 import { getAllModeNames, isValidMode } from "./core/modes.js";
 import { Logger } from "./log/logger.js";
 import { buildSystemPrompt } from "./core/prompts.js";
@@ -27,13 +27,15 @@ function setApiKeyEnv(provider: string, apiKey: string): void {
 }
 
 function extractAssistantText(messages: any[]): string {
+  // TODO: 直接反向for循环效率更高
   const last = [...messages].reverse().find((m: any) => m.role === "assistant");
   if (!last) return "";
   if (typeof last.content === "string") return last.content;
   return JSON.stringify(last.content).slice(0, 1000);
 }
 
-function findSessionByName(name: string) {
+function findSessionByName(name: string) : null | Session {
+  // TODO: 这种函数应该是 Session Manager 中
   const sessions = SessionManager.list();
   const match = sessions.find(s =>
     s.id === name ||
@@ -57,6 +59,7 @@ async function main() {
   const sessionManager = new SessionManager();
   const args = process.argv.slice(2);
 
+  // TODO: parse arg 应该独立一点
   const newIdx = args.indexOf("--new");
   const resumeIdx = args.indexOf("--resume");
   const isNew = newIdx !== -1;
@@ -115,7 +118,7 @@ async function main() {
   logger.log("session:init", { id: session.id, mode: session.mode, model: config.model.model });
 
   // Agent setup
-  let activeSkills: string[] = [];
+  let activeSkills: string[] = []; // TODO: 需要active skill的概念吗？虽然可以考虑在 mode 上抽一层，但暂时应该不需要
   let currentMode = session.mode;
 
   const agent = createSageAgent(model, {
