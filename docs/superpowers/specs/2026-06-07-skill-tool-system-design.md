@@ -108,11 +108,17 @@ class ToolManager {
   /** 获取当前活跃 skill 名列表（用于 session 持久化） */
   getActiveSkillNames(): string[];
 
+  /** 获取当前活跃的完整 AgentTool 列表 */
+  getActiveTools(): AgentTool[];
+
   /** 获取指定 skill 的工具描述文本（注入 use_skill 返回内容） */
   getToolDescriptions(skillName: string): string | null;
 
   /** 获取指定 skill 的工具数量 */
   getToolCount(skillName: string): number;
+
+  /** 获取指定 skill 的 AgentTool 列表 */
+  getSkillTools(skillName: string): AgentTool[];
 
   /** 将当前活跃工具同步到 agent.state.tools */
   private syncToAgent(): void;
