@@ -16,7 +16,6 @@ import type { SageTUI, SageTUIHandlers } from "./tui/index.js";
 /** Shared mutable context for TUI handlers, agent wireup, and status bar. */
 interface AppContext {
   sessionManager: SessionManager;
-  logger: Logger;
   agent: Agent;
   config: SageConfig;
   session: Session | null;
@@ -81,11 +80,13 @@ function parseArgs(args: string[]): ParsedArgs {
 // ---- TUI handlers ----
 
 function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
+  const sid = ctx.session!.id;
+
   return {
     onInput(text: string) {
-      ctx.logger.log("agent:prompt", { text });
+      Logger.info("agent:prompt", { sessionId: sid, text });
       ctx.agent.prompt(text).catch((err: Error) => {
-        ctx.logger.log("error", { message: err.message, stack: err.stack });
+        Logger.error("error", { sessionId: sid, message: err.message, stack: err.stack });
         console.error("Agent error:", err);
       });
     },
@@ -93,7 +94,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
     onQuit() {
       ctx.sessionManager.updateMessages(ctx.agent.state.messages);
       ctx.sessionManager.saveCurrent();
-      ctx.logger.close();
+      Logger.close();
     },
 
     onModeChange(mode: string) {
@@ -104,7 +105,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
         return;
       }
       ctx.currentMode = mode;
-      ctx.logger.log("mode:change", { mode });
+      Logger.info("mode:change", { sessionId: sid, mode });
       ctx.sessionManager.setMode(mode);
       ctx.agent.state.systemPrompt = buildSystemPrompt(mode, ctx.activeSkills);
       ctx.updateStatusBar();
@@ -115,7 +116,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       const s = ctx.sessionManager.newSession(ctx.currentMode);
       if (name) s.name = name;
       ctx.session = s;
-      ctx.logger.log("session:new", { id: s.id, name });
+      Logger.info("session:new", { sessionId: sid, name });
       ctx.tui.clearMessages();
       ctx.agent.state.messages = [];
       ctx.updateStatusBar();
@@ -151,7 +152,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       s.name = resumed.name;
       s.messages = resumed.messages;
       ctx.session = s;
-      ctx.logger.log("session:resume", { id: s.id, name: s.name });
+      Logger.info("session:resume", { sessionId: sid, name: s.name });
       ctx.agent.state.messages = [...resumed.messages];
       ctx.currentMode = resumed.mode;
       ctx.agent.state.systemPrompt = buildSystemPrompt(resumed.mode, ctx.activeSkills);
@@ -188,7 +189,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
         ctx.tui.addSystemMessage(`Session "${name}" already exists.`);
         return;
       }
-      ctx.logger.log("session:rename", { id: ctx.session.id, name });
+      Logger.info("session:rename", { sessionId: sid, name });
       ctx.tui.addSystemMessage(`Session renamed to "${name}".`);
       ctx.updateStatusBar();
     },
@@ -196,10 +197,10 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
     onSkillActivate(skill: string) {
       if (ctx.activeSkills.includes(skill)) {
         ctx.activeSkills = ctx.activeSkills.filter((s) => s !== skill);
-        ctx.logger.log("skill:deactivate", { skill });
+        Logger.info("skill:deactivate", { sessionId: sid, skill });
       } else {
         ctx.activeSkills.push(skill);
-        ctx.logger.log("skill:activate", { skill });
+        Logger.info("skill:activate", { sessionId: sid, skill });
       }
       ctx.agent.state.systemPrompt = buildSystemPrompt(ctx.currentMode, ctx.activeSkills);
       ctx.updateStatusBar();
@@ -211,7 +212,6 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
 
 interface InitSessionResult {
   session: Session;
-  logger: Logger;
   agent: Agent;
   activeSkills: string[];
   currentMode: string;
@@ -270,10 +270,9 @@ function initSession(
     }
   }
 
-  const logger = new Logger(session.id);
-  logger.log("session:init", { id: session.id, mode: session.mode, model: config.model.model });
+  Logger.info("session:init", { sessionId: session.id, mode: session.mode, model: config.model.model });
 
-  const activeSkills: string[] = [];// TODO: 需要active skill的概念吗？虽然可以考虑在 mode 上抽一层，但暂时应该不需要
+  const activeSkills: string[] = [];
   const currentMode = session.mode;
 
   const agent = createSageAgent(model, {
@@ -287,7 +286,7 @@ function initSession(
     agent.state.messages = [...session.messages];
   }
 
-  return { session, logger, agent, activeSkills, currentMode };
+  return { session, agent, activeSkills, currentMode };
 }
 
 // ---- agent events ----
@@ -296,10 +295,11 @@ function wireAgentEvents(
   agent: Agent,
   ctx: AppContext,
   tui: SageTUI,
-  logger: Logger,
   sessionManager: SessionManager,
   updateStatusBar: () => void,
 ): void {
+  const sid = ctx.session!.id;
+
   agent.subscribe(async (event: AgentEvent) => {
     if (event.type === "message_update") {
       const ae = event.assistantMessageEvent;
@@ -318,14 +318,14 @@ function wireAgentEvents(
     }
     if (event.type === "tool_execution_start") {
       tui.onToolCallStart(event.toolName, event.args ?? {}, event.toolCallId);
-      logger.log("tool:start", { name: event.toolName, args: event.args });
+      Logger.log("tool:start", { sessionId: sid, name: event.toolName, args: event.args });
     }
     if (event.type === "tool_execution_end") {
-      logger.log("tool:end", { name: event.toolName, callId: event.toolCallId });
+      Logger.log("tool:end", { sessionId: sid, name: event.toolName, callId: event.toolCallId });
     }
     if (event.type === "agent_end") {
       const fullResp = extractAssistantText(agent.state.messages);
-      logger.log("agent:response", { text: fullResp });
+      Logger.info("agent:response", { sessionId: sid, text: fullResp });
 
       const lastAssistant = [...agent.state.messages]
         .reverse()
@@ -339,19 +339,20 @@ function wireAgentEvents(
           "errorMessage" in lastAssistant
             ? (lastAssistant as { errorMessage?: string }).errorMessage
             : undefined;
-        logger.log("agent:error", {
+        Logger.error("agent:error", {
+          sessionId: sid,
           stopReason: lastAssistant.stopReason,
           error: errMsg || `Agent ${lastAssistant.stopReason}`,
         });
         tui.addErrorMessage(errMsg || `Agent ${lastAssistant.stopReason}`);
       } else if (!fullResp && agent.state.messages.length > 0) {
-        logger.log("agent:empty_response", { messageCount: agent.state.messages.length });
+        Logger.warn("agent:empty_response", { sessionId: sid, messageCount: agent.state.messages.length });
       }
 
       sessionManager.updateMessages(agent.state.messages);
       sessionManager.saveCurrent();
       updateStatusBar();
-      logger.log("session:save", { id: ctx.session!.id });
+      Logger.info("session:save", { sessionId: sid });
     }
   });
 }
@@ -361,13 +362,12 @@ function wireAgentEvents(
 function registerShutdown(
   agent: Agent,
   sessionManager: SessionManager,
-  logger: Logger,
   tui: SageTUI,
 ): void {
   process.on("SIGINT", () => {
     sessionManager.updateMessages(agent.state.messages);
     sessionManager.saveCurrent();
-    logger.close();
+    Logger.close();
     tui.shutdown();
     process.exit(0);
   });
@@ -378,13 +378,15 @@ function registerShutdown(
 async function main(): Promise<void> {
   const { createSageTUI } = await import("./tui/index.js");
 
+  Logger.init();
+
   const config = loadConfig();
   setApiKeyEnv(config.model.provider, config.model.apiKey);
   const model: Model<any> = getModel(config.model.provider as any, config.model.model);
 
   // Session setup
   const sessionManager = new SessionManager();
-  const { session, logger, agent, activeSkills, currentMode } = initSession(
+  const { session, agent, activeSkills, currentMode } = initSession(
     sessionManager,
     parseArgs(process.argv.slice(2)),
     config,
@@ -395,7 +397,6 @@ async function main(): Promise<void> {
   // safe because handlers fire only after createSageTUI returns)
   const ctx: AppContext = {
     sessionManager,
-    logger,
     agent,
     config,
     session,
@@ -425,8 +426,8 @@ async function main(): Promise<void> {
 
   updateStatusBar();
 
-  wireAgentEvents(agent, ctx, tui, logger, sessionManager, updateStatusBar);
-  registerShutdown(agent, sessionManager, logger, tui);
+  wireAgentEvents(agent, ctx, tui, sessionManager, updateStatusBar);
+  registerShutdown(agent, sessionManager, tui);
 }
 
 main().catch((err) => {

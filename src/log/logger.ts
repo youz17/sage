@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getSageDir } from "../config/loader.js";
 
+let _stream: fs.WriteStream | null = null;
+
 function logsDir(): string {
   const dir = path.join(getSageDir(), "logs");
   if (!fs.existsSync(dir)) {
@@ -12,7 +14,6 @@ function logsDir(): string {
 
 function sanitize(obj: unknown): unknown {
   if (typeof obj === "string") {
-    // Redact api keys (sk-... patterns, tvly-... etc)
     return obj.replace(/sk-[a-zA-Z0-9]+/g, "sk-***")
       .replace(/tvly-[a-zA-Z0-9]+/g, "tvly-***");
   }
@@ -33,25 +34,44 @@ function sanitize(obj: unknown): unknown {
   return obj;
 }
 
-// TODO: log用对象的形式暴露接口往往有点过度设计
-export class Logger {
-  private stream: fs.WriteStream;
+function buildFileName(): string {
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10);
+  const time = now.toISOString().slice(11, 19).replace(/:/g, "");
+  const pid = process.pid;
+  return `sage-${date}-${time}-${pid}.jsonl`;
+}
 
-  constructor(sessionId: string) {
-    const filePath = path.join(logsDir(), `${sessionId}.jsonl`);
-    this.stream = fs.createWriteStream(filePath, { flags: "a" });
+export class Logger {
+  static init(): void {
+    const filePath = path.join(logsDir(), buildFileName());
+    _stream = fs.createWriteStream(filePath, { flags: "a" });
   }
 
-  log(type: string, detail: unknown = {}): void {
+  static close(): void {
+    if (_stream) {
+      _stream.end();
+      _stream = null;
+    }
+  }
+
+  static log(key: string, data?: Record<string, unknown>): void {
+    if (!_stream) return;
     const entry = {
       ts: new Date().toISOString(),
-      type,
-      ...(sanitize(detail) as Record<string, unknown>),
+      type: key,
+      ...(sanitize(data ?? {}) as Record<string, unknown>),
     };
-    this.stream.write(JSON.stringify(entry) + "\n");
+    _stream.write(JSON.stringify(entry) + "\n");
   }
 
-  close(): void {
-    this.stream.end();
+  static info(key: string, data?: Record<string, unknown>): void {
+    Logger.log(`info:${key}`, data);
+  }
+  static warn(key: string, data?: Record<string, unknown>): void {
+    Logger.log(`warn:${key}`, data);
+  }
+  static error(key: string, data?: Record<string, unknown>): void {
+    Logger.log(`error:${key}`, data);
   }
 }

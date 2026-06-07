@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Logger } from "../log/logger.js";
+import { Logger } from "../log/logger.js";
 
 function getMessageText(m: AgentMessage): string {
   switch (m.role) {
@@ -32,7 +32,6 @@ function estimateTokens(messages: AgentMessage[]): number {
 
 export async function compactMemory(
   messages: AgentMessage[],
-  logger?: Logger,
 ): Promise<AgentMessage[] | null> {
   const contextWindow = 128000;
   const estimatedTokens = estimateTokens(messages);
@@ -41,7 +40,7 @@ export async function compactMemory(
   if (messages.length < 6) return null;
 
   const splitPoint = Math.max(2, Math.floor(messages.length * 0.4));
-  logger?.log("memory:compact", { inputCount: messages.length, splitPoint });
+  Logger.info("memory:compact", { inputCount: messages.length, splitPoint });
   const toCompact = messages.slice(0, splitPoint);
   const recent = messages.slice(splitPoint);
 
