@@ -9,6 +9,10 @@ import { createSageAgent } from "./agent/index.js";
 import { createWebFetchTool, htmlToMarkdown } from "./agent/tools.js";
 import { buildAutoSkillPrompt, buildSkillActivation, buildManualSkillPrompt } from "./skills/loader.js";
 import type { Skill } from "./skills/loader.js";
+import { escapeShell, ToolManager } from "./agent/tool-manager.js";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 function testBuildAutoSkillPrompt() {
   const skills: Skill[] = [
@@ -146,6 +150,137 @@ function testCreateWebFetchTool() {
   }
 }
 
+function testEscapeShell() {
+  const cases: [string, string][] = [
+    ["hello", "'hello'"],
+    ["it's", "'it'\\''s'"],
+    ["", "''"],
+    ["a b", "'a b'"],
+    ["$PATH", "'$PATH'"],
+  ];
+  const passed = cases.every(([input, expected]) => {
+    const got = escapeShell(input);
+    if (got !== expected) {
+      console.log(`  FAIL: escapeShell(${JSON.stringify(input)}) = ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`);
+      return false;
+    }
+    return true;
+  });
+  console.log(passed ? "✅ escapeShell passed" : "❌ escapeShell FAILED");
+}
+
+function testToolManagerActivateIdempotent() {
+  const tmpDir = join(tmpdir(), "sage-test-" + Math.random().toString(36).slice(2));
+  const skillDir = join(tmpDir, "test-skill");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "skill.md"), "---\ntype: auto\ndescription: test\n---\n");
+  writeFileSync(join(skillDir, "tools.json"), JSON.stringify({
+    tools: [
+      {
+        name: "test_echo",
+        label: "Echo",
+        description: "Echoes input",
+        parameters: {
+          msg: { type: "string", required: true, description: "message" }
+        },
+        command: "node -e \"process.stdout.write('{{msg}}')\""
+      }
+    ]
+  }));
+
+  const baseTools: any[] = [{ name: "base", label: "Base", description: "b", parameters: {} as any, execute: async () => ({ content: [], details: null }) }];
+  const mgr = new ToolManager(baseTools, tmpDir);
+
+  mgr.activate("test-skill");
+  const tools1 = mgr.getActiveTools();
+  const match1 = tools1.length === 2;
+
+  mgr.activate("test-skill");
+  const tools2 = mgr.getActiveTools();
+  const match2 = tools2.length === 2;
+
+  const names = mgr.getActiveSkillNames();
+  const match3 = names.length === 1 && names[0] === "test-skill";
+
+  const desc = mgr.getToolDescriptions("test-skill");
+  const match4 = desc?.includes("test_echo") === true && desc?.includes("Echoes input") === true;
+
+  const st = mgr.getSkillTools("test-skill");
+  const match5 = st.length === 1 && st[0].name === "test_echo";
+
+  const count = mgr.getToolCount("test-skill");
+  const match6 = count === 1;
+
+  const countNone = mgr.getToolCount("nonexistent");
+  const match7 = countNone === 0;
+
+  mgr.deactivate("test-skill");
+  const tools3 = mgr.getActiveTools();
+  const match8 = tools3.length === 1;
+
+  const allPassed = [match1, match2, match3, match4, match5, match6, match7, match8].every(Boolean);
+  console.log(allPassed ? "✅ ToolManager activate/idempotent/deactivate passed" : "❌ ToolManager activate/idempotent/deactivate FAILED");
+  if (!allPassed) {
+    console.log("  Results:", { match1, match2, match3, match4, match5, match6, match7, match8 });
+  }
+
+  rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testToolManagerNoToolsJson() {
+  const tmpDir = join(tmpdir(), "sage-test-" + Math.random().toString(36).slice(2));
+  const skillDir = join(tmpDir, "no-tools-skill");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "skill.md"), "---\ntype: auto\n---\n");
+
+  const mgr = new ToolManager([], tmpDir);
+  mgr.activate("no-tools-skill");
+  const tools = mgr.getActiveTools();
+  const match = tools.length === 0;
+
+  console.log(match ? "✅ ToolManager no-tools.json passed" : "❌ ToolManager no-tools.json FAILED");
+  rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function testToolManagerSyncToAgent() {
+  const tmpDir = join(tmpdir(), "sage-test-" + Math.random().toString(36).slice(2));
+  const skillDir = join(tmpDir, "echo-skill");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "skill.md"), "---\ntype: auto\n---\n");
+  writeFileSync(join(skillDir, "tools.json"), JSON.stringify({
+    tools: [{
+      name: "echo",
+      label: "Echo",
+      description: "Echo",
+      parameters: { msg: { type: "string", required: true, description: "msg" } },
+      command: "node -e \"process.stdout.write('{{msg}}')\""
+    }]
+  }));
+
+  const mgr = new ToolManager([], tmpDir);
+
+  let capturedTools: any[] = [];
+  const mockAgent = {
+    state: {
+      get tools() { return capturedTools; },
+      set tools(v: any[]) { capturedTools = v; },
+    },
+  };
+
+  mgr.setAgent(mockAgent as any);
+  let match1 = capturedTools.length === 0;
+
+  mgr.activate("echo-skill");
+  let match2 = capturedTools.length === 1 && capturedTools[0].name === "echo";
+
+  console.log(match1 && match2 ? "✅ ToolManager syncToAgent passed" : "❌ ToolManager syncToAgent FAILED");
+  if (!(match1 && match2)) {
+    console.log("  Results:", { match1, match2, toolCount: capturedTools.length });
+  }
+
+  rmSync(tmpDir, { recursive: true, force: true });
+}
+
 async function test() {
   // --- Prompt structure unit tests (no API key needed) ---
   testBuildAutoSkillPrompt();
@@ -153,6 +288,10 @@ async function test() {
   testBuildManualSkillPrompt();
   testHtmlToMarkdown();
   testCreateWebFetchTool();
+  testEscapeShell();
+  testToolManagerActivateIdempotent();
+  testToolManagerNoToolsJson();
+  testToolManagerSyncToAgent();
   console.log();
 
   console.log("Loading config...");
