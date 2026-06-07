@@ -11,6 +11,7 @@ export interface Session {
   createdAt: string;
   updatedAt: string;
   messages: AgentMessage[];
+  activeSkills: string[];
 }
 
 function sessionsDir(): string {
@@ -60,6 +61,7 @@ export class SessionManager {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       messages: [],
+      activeSkills: [],
     };
     this.current = session;
     return session;
@@ -107,6 +109,7 @@ export class SessionManager {
         ...data,
         name: data.name ?? data.title ?? data.id,
         description: data.description ?? "",
+        activeSkills: data.activeSkills ?? [],
       } as Session;
     } catch {
       return null;
@@ -148,6 +151,16 @@ export class SessionManager {
     this.current.name = name;
     this.current.updatedAt = new Date().toISOString();
     return true;
+  }
+
+  syncActiveSkills(names: string[]): void {
+    if (this.current) {
+      this.current.activeSkills = names;
+    }
+  }
+
+  getActiveSkills(): string[] {
+    return this.current?.activeSkills ?? [];
   }
 
   setMode(mode: string): void {
