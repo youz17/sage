@@ -328,7 +328,7 @@ async function test() {
   console.log(`Model API: ${model.api}`);
 
   console.log(`\nCreating agent...`);
-  const agent = createSageAgent(model, {
+  const { agent } = createSageAgent(model, {
     mode: "direct",
     tavilyApiKey: config.tavilyApiKey,
   });

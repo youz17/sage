@@ -277,7 +277,7 @@ function initSession(
 
   const currentMode = session.mode;
 
-  const agent = createSageAgent(model, {
+  const { agent } = createSageAgent(model, {
     mode: currentMode,
     tavilyApiKey: config.tavilyApiKey,
     sessionId: session.id,
