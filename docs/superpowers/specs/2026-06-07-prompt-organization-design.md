@@ -63,12 +63,11 @@ You are Sage, an AI assistant.
 
 ### 3. 文件自描述规范
 
-| 文件类型 | body 开头自描述要求 |
-|---------|-------------------|
-| Mode | `当前处于「XX」模式。此模式决定了我的沟通风格和领域知识。具体行为如下：` |
-| Rule | `这是一条行为约束，你必须遵守：[约束内容]` |
-| Skill (auto) | `此 skill 提供了 XX 能力。激活后按以下步骤执行：` |
-| Skill (manual) | `此 skill 提供了 XX 工作流。按以下流程操作：` |
+| 文件类型 | 是否需要自描述 | 原因 |
+|---------|-------------|------|
+| Mode | **需要**。body 开头：`当前处于「XX」模式。此模式决定了我的沟通风格和领域知识。具体行为如下：` | Mode body 无标题，直接拼在 `You are Sage` 之后，不自己说明身份 LLM 不知道这段是什么 |
+| Rule | **不需要** | `## Rules` 标题已提供足够上下文 |
+| Skill | **需要**。body 开头说明此 skill 的用途和流程 | 激活后 skill body 是完整指令，需要开头自述作用 |
 
 自描述语句由 write-xxx 技能指导 LLM 写出，不在代码层硬编码。
 
@@ -83,7 +82,7 @@ You are Sage, an AI assistant.
 
 **write-rule** 增加：
 ```
-你写的 rule 内容会被插入 system prompt 的 "## Rules" 标题下方。请在 body 开头包含自描述语句，说明这是一条行为约束。
+你写的 rule 内容会被插入 system prompt 的 "## Rules" 标题下方。标题本身已提供上下文，rule 正文无需额外的自描述语句，直接写约束内容即可。
 ```
 
 **write-skill** 增加：
@@ -110,7 +109,7 @@ You are Sage, an AI assistant.
 | `src/skills/builtin/challenge.md` | body 开头加自描述 |
 | `src/skills/builtin/goal.md` | body 开头加自描述 |
 | `src/skills/builtin/write-skill.md` | body 开头加自描述 + 说明注入格式 |
-| `src/skills/builtin/write-rule.md` | body 开头加自描述 + 说明注入格式 |
+| `src/skills/builtin/write-rule.md` | 说明注入格式（`## Rules` 下方，无需自描述） |
 | `src/skills/builtin/write-mode.md` | body 开头加自描述 + 说明注入格式 |
 | `src/core/builtin/discuss.md` | body 开头加自描述 |
 | `src/core/builtin/default.md` | body 开头加自描述 |
