@@ -5,9 +5,10 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 export interface Session {
   id: string;
-  title: string;
+  name: string;
+  description: string;
   mode: string;
-  createdAt: string; // TODO: Date type?
+  createdAt: string;
   updatedAt: string;
   messages: AgentMessage[];
 }
@@ -31,12 +32,19 @@ function generateId(): string {
   return `${dateStr}-${rand}`;
 }
 
-// TODO: 调用ai总结描述
-function generateTitle(messages: AgentMessage[]): string {
+function generateDescription(messages: AgentMessage[]): string {
   const firstUser = messages.find((m) => m.role === "user");
-  if (!firstUser) return "New Session";
-  const content = typeof firstUser.content === "string" ? firstUser.content : "";
-  return content.slice(0, 30) || "New Session";
+  if (!firstUser) return "";
+  const content = (firstUser as { content: unknown }).content;
+  if (typeof content === "string") return content.slice(0, 50);
+  if (Array.isArray(content)) {
+    return content
+      .filter((c): c is { text?: string } => typeof c === "object" && c !== null && "text" in c)
+      .map((c) => c.text || "")
+      .join(" ")
+      .slice(0, 50);
+  }
+  return "";
 }
 
 export class SessionManager {
@@ -46,7 +54,8 @@ export class SessionManager {
     const id = generateId();
     const session: Session = {
       id,
-      title: "New Session",
+      name: id,
+      description: "",
       mode,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -64,8 +73,8 @@ export class SessionManager {
     if (!this.current || this.current.messages.length === 0) return;
     this.current.updatedAt = new Date().toISOString();
 
-    if (this.current.title === "New Session") {
-      this.current.title = generateTitle(this.current.messages);
+    if (!this.current.description) {
+      this.current.description = generateDescription(this.current.messages);
     }
 
     fs.writeFileSync(sessionPath(this.current.id), JSON.stringify(this.current, null, 2), "utf-8");
@@ -94,7 +103,12 @@ export class SessionManager {
     const filePath = sessionPath(sessionId);
     if (!fs.existsSync(filePath)) return null;
     try {
-      return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      return {
+        ...data,
+        name: data.name ?? data.title ?? data.id,
+        description: data.description ?? "",
+      } as Session;
     } catch {
       return null;
     }
@@ -111,6 +125,16 @@ export class SessionManager {
     if (this.current) {
       this.current.messages = messages;
     }
+  }
+
+  setName(name: string): boolean {
+    if (!this.current) return false;
+    const sessions = SessionManager.list();
+    const conflict = sessions.find((s) => s.name === name && s.id !== this.current!.id);
+    if (conflict) return false;
+    this.current.name = name;
+    this.current.updatedAt = new Date().toISOString();
+    return true;
   }
 
   setMode(mode: string): void {
