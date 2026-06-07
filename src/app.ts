@@ -26,13 +26,6 @@ interface AppContext {
   updateStatusBar(): void;
 }
 
-/** Lightweight content block for extracting display text. */
-interface ContentBlock {
-  type: string;
-  text?: string;
-  thinking?: string;
-}
-
 // ---- helpers ----
 
 function setApiKeyEnv(provider: string, apiKey: string): void {
@@ -162,34 +155,10 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       }
       ctx.sessionManager.saveCurrent();
 
-      ctx.tui.clearMessages();
-      ctx.tui.addSystemMessage(`Resumed: ${resumed.title || resumed.id}`);
+      ctx.tui.restoreMessages(resumed.messages);
       ctx.tui.addSystemMessage(
-        `Mode: ${resumed.mode} | Messages: ${resumed.messages.length} | ${resumed.createdAt.slice(0, 10)}`,
+        `Resumed: ${resumed.title || resumed.id} (${resumed.mode}, ${resumed.messages.length} messages)`,
       );
-
-      const preview = resumed.messages.slice(0, 6);
-      for (const msg of preview) {
-        const roleLabel =
-          msg.role === "user" ? "You" : msg.role === "assistant" ? "Sage" : msg.role;
-        const rawContent: unknown = (msg as { content: unknown }).content;
-        const content =
-          typeof rawContent === "string"
-            ? rawContent
-            : Array.isArray(rawContent)
-              ? (rawContent as ContentBlock[])
-                  .map((c) => c.text || c.thinking || c.type || "")
-                  .filter(Boolean)
-                  .join(" ")
-                  .slice(0, 80)
-              : "";
-        ctx.tui.addSystemMessage(
-          `[${roleLabel}] ${content.slice(0, 80)}${content.length > 80 ? "..." : ""}`,
-        );
-      }
-      if (resumed.messages.length > 6) {
-        ctx.tui.addSystemMessage(`... and ${resumed.messages.length - 6} more messages`);
-      }
 
       const s = ctx.sessionManager.newSession(resumed.mode);
       s.id = resumed.id;
@@ -439,6 +408,10 @@ async function main(): Promise<void> {
     sessions: () => SessionManager.list().map((s) => s.title || s.id),
   });
   ctx.tui = tui;
+
+  if (session.messages.length > 0) {
+    tui.restoreMessages(session.messages);
+  }
 
   updateStatusBar();
 
