@@ -257,6 +257,7 @@ export interface SageTUI {
   updateStatus: (props: { mode: string; thinkingLevel: string; modelName: string; skills: string[]; sessionName?: string }) => void;
   addSystemMessage: (text: string) => void;
   clearMessages: () => void;
+  restoreMessages: (messages: AgentMessage[]) => void;
   addErrorMessage: (text: string) => void;
 }
 
@@ -384,6 +385,10 @@ export function createSageTUI(handlers: SageTUIHandlers, completions: {
     },
     clearMessages() {
       messages.clearMessages();
+      tui.requestRender();
+    },
+    restoreMessages(msgs: AgentMessage[]) {
+      messages.restoreMessages(msgs);
       tui.requestRender();
     },
     addErrorMessage(text: string) {
