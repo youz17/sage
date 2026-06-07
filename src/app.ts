@@ -2,6 +2,7 @@ import { getModel } from "@earendil-works/pi-ai";
 import type { Model } from "@earendil-works/pi-ai";
 import { Agent } from "@earendil-works/pi-agent-core";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
+import type { ToolManager } from "./agent/tool-manager.js";
 import { loadConfig } from "./config/loader.js";
 import type { SageConfig } from "./config/types.js";
 import { createSageAgent } from "./agent/index.js";
@@ -22,6 +23,7 @@ interface AppContext {
   session: Session | null;
   currentMode: string;
   tui: SageTUI;
+  toolManager: ToolManager;
   updateStatusBar(): void;
 }
 
@@ -92,6 +94,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
     },
 
     onQuit() {
+      ctx.sessionManager.syncActiveSkills(ctx.toolManager.getActiveSkillNames());
       ctx.sessionManager.updateMessages(ctx.agent.state.messages);
       ctx.sessionManager.saveCurrent();
       Logger.close();
@@ -112,6 +115,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
     },
 
     onSessionNew(name?: string) {
+      ctx.sessionManager.syncActiveSkills(ctx.toolManager.getActiveSkillNames());
       ctx.sessionManager.saveCurrent();
       const s = ctx.sessionManager.newSession(ctx.currentMode);
       if (name) s.name = name;
@@ -140,6 +144,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
         ctx.tui.addSystemMessage(`Session "${name}" not found.`);
         return;
       }
+      ctx.sessionManager.syncActiveSkills(ctx.toolManager.getActiveSkillNames());
       ctx.sessionManager.saveCurrent();
 
       ctx.tui.restoreMessages(resumed.messages);
@@ -154,6 +159,9 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
       ctx.session = s;
       Logger.info("session:resume", { sessionId: sid, name: s.name });
       ctx.agent.state.messages = [...resumed.messages];
+      if (resumed.activeSkills && resumed.activeSkills.length > 0) {
+        ctx.toolManager.activateFrom(resumed.activeSkills);
+      }
       ctx.currentMode = resumed.mode;
       ctx.agent.state.systemPrompt = buildSystemPrompt(resumed.mode);
       ctx.updateStatusBar();
@@ -217,6 +225,7 @@ function createTUIHandlers(ctx: AppContext): SageTUIHandlers {
 interface InitSessionResult {
   session: Session;
   agent: Agent;
+  toolManager: ToolManager;
   currentMode: string;
 }
 
@@ -277,7 +286,7 @@ function initSession(
 
   const currentMode = session.mode;
 
-  const { agent } = createSageAgent(model, {
+  const { agent, toolManager } = createSageAgent(model, {
     mode: currentMode,
     tavilyApiKey: config.tavilyApiKey,
     sessionId: session.id,
@@ -287,7 +296,7 @@ function initSession(
     agent.state.messages = [...session.messages];
   }
 
-  return { session, agent, currentMode };
+  return { session, agent, toolManager, currentMode };
 }
 
 // ---- agent events ----
@@ -297,6 +306,7 @@ function wireAgentEvents(
   ctx: AppContext,
   tui: SageTUI,
   sessionManager: SessionManager,
+  toolManager: ToolManager,
   updateStatusBar: () => void,
 ): void {
   const sid = ctx.session!.id;
@@ -350,6 +360,7 @@ function wireAgentEvents(
         Logger.warn("agent:empty_response", { sessionId: sid, messageCount: agent.state.messages.length });
       }
 
+      sessionManager.syncActiveSkills(toolManager.getActiveSkillNames());
       sessionManager.updateMessages(agent.state.messages);
       sessionManager.saveCurrent();
       updateStatusBar();
@@ -364,9 +375,11 @@ function registerShutdown(
   agent: Agent,
   sessionManager: SessionManager,
   tui: SageTUI,
+  toolManager: ToolManager,
 ): void {
   process.on("SIGINT", () => {
     sessionManager.updateMessages(agent.state.messages);
+    sessionManager.syncActiveSkills(toolManager.getActiveSkillNames());
     sessionManager.saveCurrent();
     Logger.close();
     tui.shutdown();
@@ -387,7 +400,7 @@ async function main(): Promise<void> {
 
   // Session setup
   const sessionManager = new SessionManager();
-  const { session, agent, currentMode } = initSession(
+  const { session, agent, toolManager, currentMode } = initSession(
     sessionManager,
     parseArgs(process.argv.slice(2)),
     config,
@@ -402,6 +415,7 @@ async function main(): Promise<void> {
     config,
     session,
     currentMode,
+    toolManager,
   } as AppContext;
 
   function updateStatusBar() {
@@ -426,8 +440,8 @@ async function main(): Promise<void> {
 
   updateStatusBar();
 
-  wireAgentEvents(agent, ctx, tui, sessionManager, updateStatusBar);
-  registerShutdown(agent, sessionManager, tui);
+  wireAgentEvents(agent, ctx, tui, sessionManager, toolManager, updateStatusBar);
+  registerShutdown(agent, sessionManager, tui, toolManager);
 }
 
 main().catch((err) => {
